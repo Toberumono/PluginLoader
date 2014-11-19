@@ -4,11 +4,7 @@
     <!--ANT 1.7 is required                                        -->
 
     <target name="javadoc">
-        <javadoc access="protected" author="true" destdir="doc" packagenames="lipstone.joshua.pluginLoader" source="1.8" sourcepath="src" splitindex="true" use="true" version="true">
-			<classpath>
-				<fileset dir="../" includes="CustomStructures.jar"/>
-			</classpath>
-        </javadoc>
+        <javadoc access="protected" author="true" destdir="doc" packagenames="lipstone.joshua.pluginLoader" source="1.8" sourcepath="src" splitindex="true" use="true" version="true" />
     </target>
 	
     <target name="create_run_jar" depends="javadoc">
@@ -19,7 +15,6 @@
             <fileset dir="./bin" includes="lipstone/**"/>
         	<fileset dir="." includes="doc/**"/>
         	<fileset dir="./src/"/>
-			<zipfileset excludes="META-INF/*.SF" src="../CustomStructures.jar"/>
         </jar>
     </target>
 </project>

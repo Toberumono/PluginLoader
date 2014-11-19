@@ -1,6 +1,7 @@
 package lipstone.joshua.pluginLoader;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.FileSystems;
@@ -16,7 +17,6 @@ import java.util.HashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-import lipstone.joshua.customStructures.lists.UnmodifiableArrayList;
 
 /**
  * This class provides advanced control over plugins in this system including methods for enabling plugins, disabling
@@ -35,7 +35,8 @@ public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
 	private HashMap<String, Class<T>> plugins;
 	private HashMap<String, Boolean> enabled;
 	private ArrayList<Path> pluginLocations;
-	private ArrayList<Loader> loaders;
+	private final Loader loader;
+	private final ArrayList<JarFile> jars;
 	
 	/**
 	 * Constructs a new {@link PluginManager} for the specified {@link PluginUser} and loads the plugins from the
@@ -68,44 +69,51 @@ public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
 		plugins = new HashMap<>();
 		enabled = new HashMap<>();
 		pluginLocations = new ArrayList<>();
-		loaders = new ArrayList<>();
-		if (loadDefaultPluginDirectory)
-			loadPlugins(pluginUser.getDefaultPluginLocation());
-		Runtime.getRuntime().addShutdownHook(new Thread() {
+		loader = new Loader();
+		jars = new ArrayList<>();
+		Runtime.getRuntime().addShutdownHook(new Thread() { //Close the classloader when we're done
 			@Override
 			public void run() {
-				for (Loader loader : loaders) {
+				try {
+					loader.close();
+				}
+				catch (IOException e) {
+					e.printStackTrace();
+				}
+				for (JarFile jar : jars)
 					try {
-						loader.close();
+						jar.close();
 					}
 					catch (IOException e) {
 						e.printStackTrace();
 					}
-				}
 			}
 		});
+		if (loadDefaultPluginDirectory)
+			loadPlugins(pluginUser.getDefaultPluginLocation());
 	}
 	
-	private final void loadClassesFromJar(Loader loader, Path path, Path location) {
-		JarFile jar = null;
-		try {
-			jar = new JarFile(path.toFile());
-		}
-		catch (IOException | NullPointerException e) {
-			logError("Failed to open a plugin in " + location);
-		}
+	//Loads all classes that are annotated with the Plugin annotation from the given .jar file
+	private final void loadClassesFromJar(JarFile jar) {
 		for (JarEntry entry : Collections.list(jar.entries())) {
 			if (entry.getName().endsWith(".class")) {
 				String className = entry.getName().replaceAll(FileSystems.getDefault().getSeparator(), ".").replace(".class", "");
 				try {
-					Class<T> clazz = (Class<T>) loader.loadClass(className);
-					System.out.println(clazz.getName());
-					Plugin annotation = clazz.getAnnotation(Plugin.class);
+					Class<T> possiblePlugin = (Class<T>) loader.loadClass(className);
+					Plugin annotation = possiblePlugin.getAnnotation(Plugin.class);
 					if (annotation != null) {
-						if (plugins.containsKey(annotation.id()))
-							logError("Encountered a duplicate plugin id: " + annotation.id());
-						else
-							plugins.put(annotation.id(), clazz);
+						String id = annotation.id();
+						if (plugins.containsKey(id))
+							logError("Encountered a duplicate plugin id: " + id);
+						else {
+							try {
+								pluginUser.loadPlugin(id, possiblePlugin);
+								plugins.put(id, possiblePlugin);
+							}
+							catch (PluginException e) {
+								logError("Unable to load the plugin: " + id);
+							}
+						}
 					}
 				}
 				catch (ClassNotFoundException e) {
@@ -113,13 +121,6 @@ public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
 				}
 			}
 		}
-		if (jar != null)
-			try {
-				jar.close();
-			}
-			catch (IOException e) {
-				e.printStackTrace();
-			}
 	}
 	
 	/**
@@ -131,70 +132,34 @@ public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
 	 * @return the number of plugins loaded
 	 */
 	public int loadPlugins(Path location) {
-		int initSize = plugins.size(); //Store the initial size of the plugins list so that the change in size can be returned at the end.
 		if (!Files.exists(location) || !(Files.isDirectory(location) || location.toString().endsWith(".jar"))) //If it is not a directory or jar file (or does not exist), stop, and return 0 plugins loaded
 			return 0;
-		ArrayList<URL> urls = new ArrayList<>();
-		ArrayList<Path> jars = new ArrayList<>();
-		FileVisitor<Path> jarListGenerator = new SimpleFileVisitor<Path>() {
+		int initSize = plugins.size(); //Store the initial size of the plugins list so that the change in size can be returned at the end.
+		FileVisitor<Path> pluginLoader = new SimpleFileVisitor<Path>() {
 			@Override
 			public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
 				if (file.getFileName().toString().endsWith(".jar")) {
-					urls.add(file.toUri().toURL());
-					jars.add(file);
+					try {
+						JarFile jar = new JarFile(file.toFile());
+						jars.add(jar);
+						loader.addPath(file);
+						loadClassesFromJar(jar);
+					}
+					catch (IOException e) {
+						logError("Unable to open a plugin in " + location);
+					}
 				}
 				return FileVisitResult.CONTINUE;
 			}
 		};
 		try {
-			Files.walkFileTree(location, jarListGenerator);
-			final Loader loader = new Loader(urls.toArray(new URL[urls.size()]));
-			try {
-				FileVisitor<Path> pluginLoader = new SimpleFileVisitor<Path>() {
-					@Override
-					public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-						loadClassesFromJar(loader, file, location);
-						return FileVisitResult.CONTINUE;
-					}
-				};
-				Files.walkFileTree(location, pluginLoader);
-			}
-			finally {
-				if (loader != null)
-					loaders.add(loader);
-			}
-			ArrayList<String> keys = new ArrayList<String>(plugins.keySet());
-			for (int i = 0; i < keys.size(); i++)
-				try {
-					pluginUser.loadPlugin(keys.get(i), plugins.get(keys.get(i)));
-				}
-				catch (PluginException e) {
-					logError("Failed to load the plugin: " + keys.get(i));
-					plugins.remove(keys.get(i));
-				}
+			Files.walkFileTree(location, pluginLoader);
 		}
 		catch (IOException e) {
 			e.printStackTrace();
 		}
 		pluginLocations.add(location);
 		return plugins.size() - initSize;
-	}
-	
-	protected void loadPlugin(Class<T> clazz) {
-		Plugin annotation = clazz.getAnnotation(Plugin.class);
-		if (annotation != null) {
-			if (plugins.containsKey(annotation.id()))
-				logError("Encountered a duplicate plugin id: " + annotation.id());
-			else
-				plugins.put(annotation.id(), clazz);
-		}
-		try {
-			pluginUser.loadPlugin(annotation.id(), clazz);
-		}
-		catch (PluginException e) {
-			logError("Failed to load the plugin: " + annotation.id());
-			plugins.remove(annotation.id());
-		}
 	}
 	
 	/**
@@ -367,7 +332,7 @@ public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
 	 * @return all the plugins loaded into this {@link PluginManager} in an ArrayList
 	 */
 	public ArrayList<T> getPlugins() {
-		return new UnmodifiableArrayList<>(new ArrayList<>(pluginUser.plugins.values()));
+		return new ArrayList<>(pluginUser.plugins.values());
 	}
 	
 	/**
@@ -383,7 +348,7 @@ public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
 	 * @return the locations that this {@link PluginManager} has loaded plugins from
 	 */
 	public ArrayList<Path> getPluginLocations() {
-		return new UnmodifiableArrayList<>(pluginLocations);
+		return new ArrayList<>(pluginLocations);
 	}
 	
 	/**
@@ -438,8 +403,11 @@ final class Loader extends URLClassLoader {
 	
 	Loader(URL... urls) {
 		super(urls);
-		System.out.println(getClass().getPackage().getName());
 		addSystemPackage(getClass().getPackage().getName());
+	}
+	
+	public void addPath(Path path) throws MalformedURLException {
+		super.addURL(path.toUri().toURL());
 	}
 	
 	static final boolean addBlockedPackage(String packageName) {
