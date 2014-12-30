@@ -6,16 +6,17 @@ import java.util.Objects;
  * @author Joshua Lipstone
  */
 public class PluginException extends Exception {
+	static final long serialVersionUID = 1L;
 	
 	/**
 	 * Stores whether Exceptions should print a stackTrace automatically
 	 */
-	private static boolean printStack = false;
+	private static transient boolean printStack = false;
 	
 	/**
 	 * The plugin that threw this exception
 	 */
-	private Loadable thrower;
+	private transient Loadable thrower;
 	
 	/**
 	 * @param thrower

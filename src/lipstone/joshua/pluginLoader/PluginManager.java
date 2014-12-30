@@ -439,7 +439,7 @@ final class Loader extends URLClassLoader {
 	protected final Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
 		for (String pkg : blockedPackages) {
 			if (name.startsWith(pkg)) {
-				return super.getSystemClassLoader().loadClass(name);
+				return getSystemClassLoader().loadClass(name);
 			}
 		}
 		return super.loadClass(name, resolve);
