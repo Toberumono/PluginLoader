@@ -3,23 +3,19 @@
 	<!--this file was created by Eclipse Runnable JAR Export Wizard-->
 	<!--ANT 1.7 is required                                        -->
 
-	<property name="src" location="./src" />
-	<property name="bin" location="./bin" />
-	<property name="doc" location="./doc" />
+	<property name="src" location="src" />
+	<property name="bin" location="bin" />
+	<property name="doc" location="doc" />
 
 	<target name="javadoc">
 		<javadoc access="protected" author="true" destdir="${doc}" packagenames="lipstone.joshua.pluginLoader" source="1.8" splitindex="true" use="true" version="true">
-			<fileset dir="${src}" defaultexcludes="no">
-				<exclude name="**/*.DS_Store" />
-			</fileset>
+			<fileset dir="${src}" />
 		</javadoc>
 	</target>
 
 	<target name="build">
 		<mkdir dir="${bin}" />
-		<javac srcdir="${src}" destdir="${bin}" includeAntRuntime="false">
-			<exclude name="**/*.DS_Store" />
-		</javac>
+		<javac srcdir="${src}" destdir="${bin}" includeAntRuntime="false" />
 	</target>
 
 	<target name="create jar" depends="clean,javadoc,build">
@@ -28,7 +24,12 @@
 				<attribute name="Class-Path" value="." />
 			</manifest>
 			<fileset dir="${bin}" />
-			<fileset dir="${doc}" />
+			<fileset dir=".">
+				<!--This ensures that the following directories will be nested in the .jar-->
+				<patternset>
+					<include name="${doc}/**" />
+				</patternset>
+			</fileset>
 			<fileset dir="${src}" />
 		</jar>
 	</target>
