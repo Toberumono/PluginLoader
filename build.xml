@@ -1,16 +1,13 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<project default="create jar" name="Create Runnable Jar for Project lipstone.joshua.pluginLoader">
-	<!--this file was created by Eclipse Runnable JAR Export Wizard-->
-	<!--ANT 1.7 is required                                        -->
+<project default="create jar" name="Create Runnable Jar for my PluginLoader project">
+	<!--ANT 1.8.3 is required                                        -->
 
 	<property name="src" location="src" />
 	<property name="bin" location="bin" />
 	<property name="doc" location="doc" />
 
 	<target name="javadoc">
-		<javadoc access="protected" author="true" destdir="${doc}" packagenames="lipstone.joshua.pluginLoader" source="1.8" splitindex="true" use="true" version="true">
-			<fileset dir="${src}" />
-		</javadoc>
+		<javadoc access="protected" author="true" destdir="${doc}" packagenames="lipstone.joshua.pluginLoader.*" source="1.8" splitindex="true" use="true" version="true" sourcepath="${src}" />
 	</target>
 
 	<target name="build">
@@ -24,12 +21,7 @@
 				<attribute name="Class-Path" value="." />
 			</manifest>
 			<fileset dir="${bin}" />
-			<fileset dir=".">
-				<!--This ensures that the following directories will be nested in the .jar-->
-				<patternset>
-					<include name="${doc}/**" />
-				</patternset>
-			</fileset>
+			<fileset dir="." includes="${doc}/**" />
 			<fileset dir="${src}" />
 		</jar>
 	</target>
