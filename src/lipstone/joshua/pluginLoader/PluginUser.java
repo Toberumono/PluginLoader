@@ -5,14 +5,14 @@ import java.nio.file.Path;
 import java.util.HashMap;
 
 /**
- * This represents a PluginUser, and is effective with or without a PluginManager.
+ * This represents a {@link PluginUser}, and is effective with or without a {@link PluginManager}.
  * 
  * @param <T>
  *            the class that will be used for <tt>plugins</tt> in this system. All instances of <tt>T</tt> must be annotated
- *            with the {@link Plugin Plugin} annotation.
+ *            with the {@link Plugin} annotation in order to be loaded.
  * @author Joshua Lipstone
  */
-public abstract class PluginUser<T extends Loadable> {
+public abstract class PluginUser<T> {
 	protected final HashMap<String, T> plugins = new HashMap<>();
 	
 	/**
@@ -33,7 +33,7 @@ public abstract class PluginUser<T extends Loadable> {
 	/**
 	 * Loads the specified plugin into this {@link PluginUser}
 	 * <p>
-	 * Upon successful loading, the plugin MUST be added to the plugins HashMap
+	 * Upon successful loading, the plugin MUST be added to the plugins {@link java.util.HashMap HashMap}
 	 * </p>
 	 * 
 	 * @param pluginID
@@ -67,7 +67,9 @@ public abstract class PluginUser<T extends Loadable> {
 	public void reloadPlugins() throws PluginException {
 		HashMap<String, Class<? extends T>> classes = new HashMap<>();
 		for (String plugin : plugins.keySet()) {
-			classes.put(plugin, (Class<? extends T>) plugins.get(plugin).getClass());
+			@SuppressWarnings("unchecked")
+			Class<? extends T> clazz = (Class<? extends T>) plugins.get(plugin).getClass();
+			classes.put(plugin, clazz);
 			unloadPlugin(plugin);
 		}
 		this.plugins.clear();

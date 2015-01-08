@@ -8,8 +8,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * This annoation contains the basic information used by the {@link PluginManager PluginManager} to determine what classes in
- * a package are loadable and how they should be named for future referencing.
+ * This annotation contains the basic information used by the {@link PluginManager PluginManager} to determine what classes
+ * in a package are plugins and how they should be named for future referencing.
  * 
  * @author Joshua Lipstone
  */

@@ -17,7 +17,6 @@ import java.util.HashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-
 /**
  * This class provides advanced control over plugins in this system including methods for enabling plugins, disabling
  * plugins, and loading plugins from a location external to this program
@@ -25,11 +24,10 @@ import java.util.jar.JarFile;
  * @param <U>
  *            the class of the {@link PluginUser} that this {@link PluginManager} will manage
  * @param <T>
- *            the class (which extends {@link Loadable}) that each plugin will have, and that this {@link PluginManager} will
- *            manage
+ *            the class that each plugin managed by this {@link PluginManager} will extend
  * @author Joshua Lipstone
  */
-public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
+public class PluginManager<U extends PluginUser<T>, T> {
 	public final U pluginUser;
 	public static final String PATH_SEPARATOR = System.getProperty("file.separator"), PATH_SEPARATORS = "[\\Q/\\\\E]";
 	private HashMap<String, Class<T>> plugins;
@@ -97,9 +95,10 @@ public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
 	private final void loadClassesFromJar(JarFile jar) {
 		for (JarEntry entry : Collections.list(jar.entries())) {
 			if (entry.getName().endsWith(".class")) {
-				String className = entry.getName().replaceAll(FileSystems.getDefault().getSeparator(), ".").replace(".class", "");
+				String className = entry.getName().replaceAll(FileSystems.getDefault().getSeparator(), ".");
+				className = className.substring(0, className.lastIndexOf(".class"));
 				try {
-					Class<T> possiblePlugin = (Class<T>) loader.loadClass(className);
+					Class<?> possiblePlugin = loader.loadClass(className);
 					Plugin annotation = possiblePlugin.getAnnotation(Plugin.class);
 					if (annotation != null) {
 						String id = annotation.id();
@@ -107,8 +106,10 @@ public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
 							logError("Encountered a duplicate plugin id: " + id);
 						else {
 							try {
-								pluginUser.loadPlugin(id, possiblePlugin);
-								plugins.put(id, possiblePlugin);
+								@SuppressWarnings("unchecked")
+								Class<T> plugin = (Class<T>) possiblePlugin;
+								pluginUser.loadPlugin(id, plugin);
+								plugins.put(id, plugin);
 							}
 							catch (PluginException e) {
 								logError("Unable to load the plugin: " + id);
@@ -124,8 +125,9 @@ public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
 	}
 	
 	/**
-	 * Loads all plugins from the given directory. Plugins are simply jar files that contain {@link Object Objects} that
-	 * implement {@link Loadable} and are annotated with {@link Plugin}
+	 * Loads all plugins from the given directory. Plugins are simply '.jar' files that contain {@link Object Objects}
+	 * annotated with {@link Plugin}.<br>
+	 * If <tt>location</tt> does not exist, this method returns 0 plugins loaded.
 	 * 
 	 * @param location
 	 *            the directory to load the plugins from
@@ -378,28 +380,11 @@ public class PluginManager<U extends PluginUser<T>, T extends Loadable> {
 	public void logInfo(String info) {
 		System.out.println("INFO: " + info);
 	}
-	
-	/**
-	 * Sets whether exceptions should automatically print stack traces
-	 * 
-	 * @param automaticallyPrintStack
-	 *            set to true for automatic stack printing, otherwise false
-	 */
-	public static void setAutomaticStackPrinting(boolean automaticallyPrintStack) {
-		PluginException.setAutomaticStackPrinting(automaticallyPrintStack);
-	}
-	
-	/**
-	 * @return true if exceptions will automatically print their stack traces, otherwise false
-	 */
-	public static boolean isAutomaticallyPrintingStack() {
-		return PluginException.isAutomaticallyPrintingStack();
-	}
 }
 
 final class Loader extends URLClassLoader {
-	private static final ArrayList<String> blockedPackages = new ArrayList<String>();
-	private static final ArrayList<String> systemPackages = new ArrayList<String>();
+	private static final ArrayList<String> blockedPackages = new ArrayList<>();
+	private static final ArrayList<String> systemPackages = new ArrayList<>();
 	
 	Loader(URL... urls) {
 		super(urls);
