@@ -36,14 +36,12 @@ public abstract class PluginUser<T> {
 	 * Upon successful loading, the plugin MUST be added to the plugins {@link java.util.HashMap HashMap}
 	 * </p>
 	 * 
-	 * @param pluginID
-	 *            the ID of the plugin to load
 	 * @param pluginClass
 	 *            the plugin to load
 	 * @throws PluginException
 	 *             a catch-all exception thrown for all plugin-related errors
 	 */
-	public abstract void loadPlugin(String pluginID, Class<? extends T> pluginClass) throws PluginException;
+	public abstract void loadPlugin(Class<? extends T> pluginClass) throws PluginException;
 	
 	/**
 	 * Unloads the specified plugin from this {@link PluginUser}
@@ -74,6 +72,6 @@ public abstract class PluginUser<T> {
 		}
 		this.plugins.clear();
 		for (String plugin : plugins.keySet())
-			loadPlugin(plugin, (Class<? extends T>) classes.get(plugin));
+			loadPlugin((Class<? extends T>) classes.get(plugin));
 	}
 }

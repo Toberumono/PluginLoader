@@ -108,7 +108,7 @@ public class PluginManager<U extends PluginUser<T>, T> {
 							try {
 								@SuppressWarnings("unchecked")
 								Class<T> plugin = (Class<T>) possiblePlugin;
-								pluginUser.loadPlugin(id, plugin);
+								pluginUser.loadPlugin(plugin);
 								plugins.put(id, plugin);
 							}
 							catch (PluginException e) {
@@ -250,7 +250,7 @@ public class PluginManager<U extends PluginUser<T>, T> {
 	public void enablePlugins(String... ids) throws PluginException {
 		for (String id : ids)
 			if (plugins.containsKey(id) && !isEnabled(id)) {
-				pluginUser.loadPlugin(id, plugins.get(id));
+				pluginUser.loadPlugin(plugins.get(id));
 				enabled.put(id, true);
 			}
 	}
