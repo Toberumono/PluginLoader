@@ -334,7 +334,7 @@ public class PluginManager<U extends PluginUser<T>, T> {
 	 * @return all the plugins loaded into this {@link PluginManager} in an ArrayList
 	 */
 	public ArrayList<T> getPlugins() {
-		return new ArrayList<>(pluginUser.plugins.values());
+		return new ArrayList<>(pluginUser.getPlugins().values());
 	}
 	
 	/**

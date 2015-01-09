@@ -2,7 +2,7 @@ package lipstone.joshua.pluginLoader;
 
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
-import java.util.HashMap;
+import java.util.Map;
 
 /**
  * This represents a {@link PluginUser}, and is effective with or without a {@link PluginManager}.
@@ -12,8 +12,7 @@ import java.util.HashMap;
  *            with the {@link Plugin} annotation in order to be loaded.
  * @author Joshua Lipstone
  */
-public abstract class PluginUser<T> {
-	protected final HashMap<String, T> plugins = new HashMap<>();
+public interface PluginUser<T> {
 	
 	/**
 	 * @return the location that this {@link PluginUser} is running from. This is <i>not</i> the default plugin location.
@@ -26,7 +25,7 @@ public abstract class PluginUser<T> {
 	 * 
 	 * @return the default plugin location for this {@link PluginUser}
 	 */
-	public Path getDefaultPluginLocation() {
+	public default Path getDefaultPluginLocation() {
 		return getBaseLocation().resolve("plugins" + FileSystems.getDefault().getSeparator());
 	}
 	
@@ -41,7 +40,7 @@ public abstract class PluginUser<T> {
 	 * @throws PluginException
 	 *             a catch-all exception thrown for all plugin-related errors
 	 */
-	public abstract void loadPlugin(Class<? extends T> pluginClass) throws PluginException;
+	public void loadPlugin(Class<? extends T> pluginClass) throws PluginException;
 	
 	/**
 	 * Unloads the specified plugin from this {@link PluginUser}
@@ -54,7 +53,7 @@ public abstract class PluginUser<T> {
 	 * @throws PluginException
 	 *             a catch-all exception thrown for all plugin-related errors
 	 */
-	public abstract void unloadPlugin(String pluginID) throws PluginException;
+	public void unloadPlugin(String pluginID) throws PluginException;
 	
 	/**
 	 * Refreshes all of the plugins in this {@link PluginUser} by unloading them and then reloading them.
@@ -62,16 +61,10 @@ public abstract class PluginUser<T> {
 	 * @throws PluginException
 	 *             a catch-all exception thrown for all plugin-related errors
 	 */
-	public void reloadPlugins() throws PluginException {
-		HashMap<String, Class<? extends T>> classes = new HashMap<>();
-		for (String plugin : plugins.keySet()) {
-			@SuppressWarnings("unchecked")
-			Class<? extends T> clazz = (Class<? extends T>) plugins.get(plugin).getClass();
-			classes.put(plugin, clazz);
-			unloadPlugin(plugin);
-		}
-		this.plugins.clear();
-		for (String plugin : plugins.keySet())
-			loadPlugin((Class<? extends T>) classes.get(plugin));
-	}
+	public void reloadPlugins() throws PluginException;
+	
+	/**
+	 * @return the plugins loaded by this {@link PluginUser}
+	 */
+	public Map<String, T> getPlugins();
 }
