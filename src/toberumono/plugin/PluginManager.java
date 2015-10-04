@@ -1,77 +1,101 @@
 package toberumono.plugin;
 
-import java.io.FilePermission;
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.AccessControlContext;
-import java.security.AccessController;
-import java.security.CodeSigner;
-import java.security.CodeSource;
-import java.security.PermissionCollection;
-import java.security.Permissions;
-import java.security.PrivilegedAction;
-import java.security.ProtectionDomain;
+import java.nio.file.WatchKey;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.logging.Logger;
 
-import toberumono.structures.Preferences;
+import toberumono.structures.tuples.Pair;
 import toberumono.utils.general.MutedLogger;
 
-public class PluginManager {
-	private static final String sep = FileSystems.getDefault().getSeparator();
+import static java.nio.file.StandardWatchEventKinds.*;
+
+public class PluginManager<P extends ManageablePlugin> {
+	private final Set<String> blacklistedPackages;
+	private final Class<P> pluginClass;
+	private final ClassLoader loader;
+	private final Map<Path, WatchKey> keys;
+	private final DirectoryMonitor monitor;
+	private final ReadWriteLock lock;
+	private final LoadQueue<Pair<String, ClassLoader>> loadQueue;
 	
-	private final Map<Path, ClassLoader> loaders;
-	private final Path settingsDirectory, dataDirectory;
-	private final Logger log;
+	private final Logger log, monitorLog, pwLog;
+	private int active;
 	
-	public PluginManager(Path settingsDirectory, Path dataDirectory, Logger log) {
-		loaders = new HashMap<>();
-		this.log = log == null ? MutedLogger.getMutedLogger() : log;
-		this.dataDirectory = dataDirectory;
-		this.settingsDirectory = settingsDirectory;
-		if (System.getSecurityManager() == null)
-			System.setSecurityManager(new PluginSecurityManager());
+	public PluginManager(Class<P> pluginClass, FileSystem fileSystem, Set<String> blacklistedPackages, ClassLoader loader, ReadWriteLock lock, Logger log) throws IOException {
+		this.blacklistedPackages = blacklistedPackages == null ? Collections.emptySet() : Collections.unmodifiableSet(blacklistedPackages);
+		this.loader = loader == null ? ClassLoader.getSystemClassLoader() : loader;
+		if (log == null)
+			this.log = this.monitorLog = this.pwLog = MutedLogger.getMutedLogger();
+		else {
+			this.log = log;
+			this.monitorLog = this.log.getLogger(this.log.getName() + ".DirectoryMonitor");
+			this.pwLog = this.log.getLogger(this.log.getName() + ".PluginWalker");
+		}
+		this.pluginClass = pluginClass;
+		this.lock = lock;
+		this.loadQueue = new LoadQueue<>(lock);
+		this.keys = new HashMap<>();
+		this.monitor = new DirectoryMonitor(fileSystem.newWatchService(), lock, null, monitorLog);
+		active = 0;
 	}
 	
-	private void loadPlugin(Class<?> pluginClass) {
-	
-	}
-	
-	public void loadPlugin(Path location) throws IOException, ClassNotFoundException {
-		final CodeSource nullSource = new CodeSource(location.toUri().toURL(), (CodeSigner[]) null);
-		PermissionCollection perms = new Permissions();
-		FileSystem pluginSystem = FileSystems.newFileSystem(location, null);
-		Path pluginFile = pluginSystem.getPath("Plugin");
-		if (!Files.exists(pluginFile))
-			throw new IOException("Unable to get the plugin data"); //TODO Replace this with a better exception
-			
-		Preferences config = Preferences.read(pluginFile);
-		perms.add(new FilePermission(settingsDirectory.resolve(config.get("Name").get(0) + ".json").toString(), "read,write"));
-		
-		String tempData = dataDirectory.resolve(config.get("Name").get(0)).toString();
-		if (!tempData.endsWith(sep))
-			tempData += sep;
-		tempData += "-";
-		perms.add(new FilePermission(tempData, "read,write,execute,delete"));
-		
-		//This is going to include access to the plugin's data and settings, and a permission that will check access against a map of plugins
-		AccessControlContext pluginContext = new AccessControlContext(new ProtectionDomain[]{new ProtectionDomain(nullSource, perms)});
-		URLClassLoader classLoader = AccessController.doPrivileged(new PrivilegedAction<URLClassLoader>() {
-			@Override
-			public URLClassLoader run() {
-				return URLClassLoader.newInstance(new URL[]{nullSource.getLocation()});
+	public void addPluginLocation(Path folder) throws IOException {
+		try {
+			startingActivity();
+			if (!Files.isDirectory(folder) && !folder.getFileName().endsWith(".jar") && !folder.getFileName().endsWith(".zip"))
+				throw new UnsupportedOperationException("Cannot directly load files other than .jar and .zip.");
+			try {
+				lock.writeLock().lock();
+				if (keys.containsKey(folder))
+					return;
+				WatchKey key = folder.register(monitor, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY);
+				keys.put(folder, key);
 			}
-		}, pluginContext);
-		loaders.put(location, classLoader);
-		for (String className : config.get("Classes")) {
-			Class<?> plugin = classLoader.loadClass(className);
+			finally {
+				lock.writeLock().unlock();
+			}
+			PluginWalker pw = new PluginWalker(loader, this::rcl, blacklistedPackages, keys::containsKey, (n, p) -> loadQueue.add(new Pair<>(n, p)), lock, pwLog);
+			Files.walkFileTree(folder, pw);
+		}
+		finally {
+			endingActivity();
+		}
+	}
+	
+	private ClassLoader rcl(Path path, ClassLoader parent) throws MalformedURLException, IOException {
+		try (URLClassLoader ucl = new URLClassLoader(new URL[]{path.toUri().toURL()}, parent)) {
+			
+			return ucl;
+		}
+	}
+	
+	public void processPluginLoadQueue() throws ClassNotFoundException {
+		for (Pair<String, ClassLoader> directive : loadQueue) {
+			Class<?> clazz = Class.forName(directive.getX(), true, directive.getY());
+			if (!pluginClass.isAssignableFrom(clazz))
+				continue;
+			Plugin a = clazz.getAnnotation(Plugin.class);
+			//TODO add checks to ensure that plugins have unique IDs.
 			
 		}
+	}
+	
+	public synchronized void startingActivity() {
+		active++;
+	}
+	
+	public synchronized void endingActivity() {
+		active--;
 	}
 }
