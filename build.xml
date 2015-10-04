@@ -11,7 +11,7 @@
 
 	<!--Change this value to true if the project uses external libraries.-->
 	<!--This cannot be changed from the command line.-->
-	<property name="use.libs" value="false" />
+	<property name="use.libs" value="true" />
 
 	<!--Change this value to true if the project is assuming Homebrew was used to install its libraries.-->
 	<property unless:set="use.hombrew" name="use.homebrew" value="false" />
@@ -40,6 +40,8 @@
 
 	<patternset id="libraries">
 		<!--Add the names of the libraries to be included here.-->
+		<include name="Utils.jar" />
+		<include name="Structures.jar" />
 	</patternset>
 
 	<patternset id="Build Excludes">
