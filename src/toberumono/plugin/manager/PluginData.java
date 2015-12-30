@@ -2,6 +2,7 @@ package toberumono.plugin.manager;
 
 import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -42,6 +43,7 @@ public class PluginData<T> {
 	private PluginData<? extends T> resolvedParent;
 	private T instance;
 	private Boolean linkable;
+	private Integer hashCode;
 	
 	/**
 	 * Constructs a new {@link PluginData} container with the default {@link Logger}
@@ -81,6 +83,7 @@ public class PluginData<T> {
 		resolvedParent = null;
 		instance = null;
 		linkable = false;
+		hashCode = null;
 	}
 	
 	protected List<RequestedDependency<T>> generateDependencyRequests() {
@@ -299,5 +302,35 @@ public class PluginData<T> {
 	 */
 	public String getVersion() {
 		return getDescription().version();
+	}
+	
+	@Override
+	public boolean equals(Object other) {
+		if (other == null || !(other instanceof PluginData))
+			return false;
+		PluginData<?> o = (PluginData<?>) other;
+		if (!clazz.equals(o.clazz) || isLinkable(false) != o.isLinkable(false) || !description.equals(o.description) || dependencies.length != o.dependencies.length ||
+				(parent == null && o.parent != null || (parent != null && !parent.equals(o.parent))) ||
+				(resolvedParent == null && o.resolvedParent != null || (resolvedParent != null && !resolvedParent.equals(o.resolvedParent))) ||
+				!resolvedDependencies.equals(o.resolvedDependencies) || (instance == null && o.instance != null || (instance != null && !instance.equals(o.instance))))
+			return false;
+		outerDependencyLoop: for (int i = 0; i < dependencies.length; i++) {
+			for (int j = 0; j < o.dependencies.length; j++)
+				if (dependencies[i].equals(o.dependencies[j]))
+					continue outerDependencyLoop;
+			return false;
+		}
+		return true;
+	}
+	
+	@Override
+	public int hashCode() {
+		if (hashCode != null)
+			return hashCode;
+		int hash = 17;
+		hash = hash * 31 + clazz.hashCode();
+		hash = hash * 31 + description.hashCode();
+		hash = hash * 31 + Arrays.hashCode(dependencies);
+		return hashCode = hash;
 	}
 }
