@@ -57,6 +57,8 @@ public class PluginData<T> {
 	}
 	
 	T construct(Object[] args) throws PluginConstructionException {
+		if (!isLinkable())
+			throw new PluginConstructionException("Attempted to construct the plugin, " + annotation.id() + ", but it was not linkable.");
 		if (instance != null) //Plugins can only be constructed once.
 			return instance;
 		Class<?>[] types = (Class[]) Array.newInstance(Class.class, args.length);
