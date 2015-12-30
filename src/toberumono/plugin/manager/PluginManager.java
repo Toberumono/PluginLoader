@@ -243,10 +243,13 @@ public class PluginManager<T> extends FileManager {
 		}
 	}
 	
-	public synchronized void initialize(Object... args) throws PluginConstructionException, UnlinkablePluginException {
-		for (PluginData<T> pd : plugins.values()) {
-			if (pd.isLinkable() && !pd.isConstructed())
-				pd.construct(args);
+	public void initialize(Object... args) throws Exception {
+		synchronized (pluginMapLock) {
+			resolve(); //We cannot initialize plugins without resolving their dependencies first
+			for (PluginData<T> pd : plugins.values()) {
+				if (pd.isLinkable() && !pd.isConstructed())
+					onConstruction.accept(pd.construct(args));
+			}
 		}
 	}
 }
