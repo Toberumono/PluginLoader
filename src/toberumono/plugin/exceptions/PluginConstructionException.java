@@ -1,9 +1,7 @@
 package toberumono.plugin.exceptions;
 
-import toberumono.plugin.manager.ManageablePlugin;
-
 /**
- * Thrown when constructing a {@link ManageablePlugin} fails.
+ * Thrown when constructing a plugin fails.
  *
  * @author Toberumono
  */

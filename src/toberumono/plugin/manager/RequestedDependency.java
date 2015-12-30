@@ -23,7 +23,7 @@ class RequestedDependency<T> {
 		hashCode = null;
 	}
 	
-	public boolean satisfy(PluginData<T> satisfier) {
+	public boolean trySatisfy(PluginData<T> satisfier) {
 		synchronized (satisfied) {
 			if (isSatisfied())
 				return false;

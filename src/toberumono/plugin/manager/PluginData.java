@@ -2,8 +2,10 @@ package toberumono.plugin.manager;
 
 import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -32,6 +34,7 @@ public class PluginData<T> {
 	private final PluginDescription description;
 	private final String parent;
 	private final Dependency[] dependencies;
+	private final Collection<String> requiredDependencies;
 	private final Map<String, PluginData<T>> resolvedDependencies;
 	private final Logger logger;
 	private final Lock constructionLock, parentLock;
@@ -66,6 +69,10 @@ public class PluginData<T> {
 		description = clazz.getAnnotation(PluginDescription.class);
 		parent = description.parent().length() == 0 || description.parent().equalsIgnoreCase("[none]") ? null : description.parent();
 		dependencies = clazz.getAnnotationsByType(Dependency.class);
+		requiredDependencies = new LinkedHashSet<>();
+		for (Dependency dep : dependencies)
+			if (dep.required())
+				requiredDependencies.add(dep.id());
 		resolvedDependencies = new LinkedHashMap<>();
 		constructionLock = new ReentrantLock();
 		parentLock = new ReentrantLock();
@@ -267,7 +274,7 @@ public class PluginData<T> {
 		synchronized (dependenciesLock.readLock()) {
 			if (parent != null && resolvedParent == null)
 				return false;
-			if (resolvedDependencies.size() < dependencies.length)
+			if (resolvedDependencies.keySet().containsAll(requiredDependencies))
 				return false;
 			return true;
 		}
