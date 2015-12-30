@@ -2,34 +2,72 @@ package toberumono.plugin.manager;
 
 import java.util.function.Consumer;
 
-import toberumono.plugin.annotations.PluginDescription;
 import toberumono.plugin.annotations.Dependency;
+import toberumono.plugin.annotations.PluginDescription;
 
 class RequestedDependency<T> {
-	private final String id;
+	private final String requestorId, requestedId, requestedVersion;
 	private final Consumer<PluginData<T>> onSatisfaction;
-	private boolean satisfied;
+	private Boolean satisfied;
+	private Integer hashCode;
 	
-	public RequestedDependency(String id, Consumer<PluginData<T>> onSatisfaction) {
-		this.id = id;
-		this.onSatisfaction = onSatisfaction;
-		satisfied = false;
+	public RequestedDependency(String requestorId, Dependency dependency, Consumer<PluginData<T>> onSatisfaction) {
+		this(requestorId, dependency.id(), dependency.version(), onSatisfaction);
 	}
 	
-	public RequestedDependency(Dependency dependency, Consumer<PluginData<T>> onSatisfaction) {
-		this.id = dependency.id();
+	public RequestedDependency(String requestorId, String requestedId, String requestedVersion, Consumer<PluginData<T>> onSatisfaction) {
+		this.requestorId = requestorId;
+		this.requestedId = requestedId;
+		this.requestedVersion = requestedVersion;
 		this.onSatisfaction = onSatisfaction;
 		satisfied = false;
+		hashCode = null;
 	}
 	
-	public synchronized boolean satisfy(PluginData<T> satisfier) {
-		if (satisfied)
+	public boolean satisfy(PluginData<T> satisfier) {
+		synchronized (satisfied) {
+			if (isSatisfied())
+				return false;
+			PluginDescription pd = satisfier.getDescription();
+			if (!pd.id().equals(requestedId))
+				return false;
+			satisfied = true;
+			onSatisfaction.accept(satisfier);
+			return true;
+		}
+	}
+	
+	public boolean isSatisfied() {
+		synchronized (satisfied) {
+			return satisfied;
+		}
+	}
+	
+	/**
+	 * Generates a {@link String} of the form
+	 * {@code "requestorId:}&#123;{@code requestedId, requestedVersion}&#125;{@code :satisfied"} (i.e.
+	 * {@code "my.first.plugin:}&#123;{@code my.second.plugin, [any]}&#125;{@code :false"})
+	 * 
+	 * @return a {@link String} of the form
+	 *         {@code "requestorId:}&#123;{@code requestedId, requestedVersion}&#125;{@code :satisfied"}
+	 */
+	@Override
+	public String toString() {
+		return requestorId + ":{" + requestedId + ", " + requestedVersion + "}:" + satisfied;
+	}
+	
+	@Override
+	public boolean equals(Object other) {
+		if (!(other instanceof RequestedDependency))
 			return false;
-		PluginDescription pd = satisfier.getDescription();
-		if (!pd.id().equals(id))
-			return false;
-		satisfied = true;
-		onSatisfaction.accept(satisfier);
-		return true;
+		RequestedDependency<?> o = (RequestedDependency<?>) other;
+		return requestorId.equals(o.requestorId) && requestedId.equals(o.requestedId) && requestedVersion.equals(o.requestedVersion) && satisfied == o.satisfied;
+	}
+	
+	@Override
+	public int hashCode() {
+		if (hashCode == null)
+			hashCode = (requestorId + requestedId + requestedVersion).hashCode();
+		return hashCode;
 	}
 }
