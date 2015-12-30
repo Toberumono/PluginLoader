@@ -1,4 +1,4 @@
-package toberumono.plugin;
+package toberumono.plugin.manager;
 
 import java.util.List;
 
