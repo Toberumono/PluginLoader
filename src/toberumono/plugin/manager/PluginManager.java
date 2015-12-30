@@ -22,6 +22,7 @@ import java.util.logging.Logger;
 
 import toberumono.plugin.annotations.PluginDescription;
 import toberumono.plugin.exceptions.PluginConstructionException;
+import toberumono.plugin.exceptions.UnlinkablePluginException;
 import toberumono.utils.files.FileManager;
 import toberumono.utils.functions.IOExceptedFunction;
 
@@ -219,7 +220,7 @@ public class PluginManager<T> extends FileManager {
 		}
 	}
 	
-	public synchronized void initialize(Object... args) throws PluginConstructionException {
+	public synchronized void initialize(Object... args) throws PluginConstructionException, UnlinkablePluginException {
 		for (PluginData<T> pd : plugins.values()) {
 			if (pd.isLinkable() && !pd.isConstructed())
 				pd.construct(args);

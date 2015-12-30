@@ -8,10 +8,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import toberumono.plugin.annotations.Dependency;
 import toberumono.plugin.annotations.PluginDescription;
 import toberumono.plugin.exceptions.PluginConstructionException;
+import toberumono.plugin.exceptions.UnlinkablePluginException;
 
 public class PluginData<T> {
 	private final Class<? extends T> clazz;
@@ -19,56 +26,89 @@ public class PluginData<T> {
 	private final String parent;
 	private final Dependency[] dependencies;
 	private final Map<String, PluginData<T>> resolvedDependencies;
+	private final Logger logger;
+	private final Lock constructionLock;
+	private final ReadWriteLock linkabilityTestLock, dependenciesLock;
 	private PluginData<? extends T> resolvedParent;
 	private T instance;
-	private boolean linkable;
+	private Boolean linkable;
 	
 	public PluginData(Class<? extends T> clazz) {
+		this(clazz, Logger.getLogger("toberumono.plugin.manager.PluginData"));
+	}
+	public PluginData(Class<? extends T> clazz, Logger logger) {
 		this.clazz = clazz;
+		this.logger = logger;
 		annotation = clazz.getAnnotation(PluginDescription.class);
 		parent = annotation.parent().equalsIgnoreCase("[none]") ? null : annotation.parent();
 		dependencies = clazz.getAnnotationsByType(Dependency.class);
 		resolvedDependencies = new LinkedHashMap<>();
+		constructionLock = new ReentrantLock();
+		linkabilityTestLock = new ReentrantReadWriteLock();
+		dependenciesLock = new ReentrantReadWriteLock();
 		resolvedParent = null;
 		instance = null;
 		linkable = false;
 	}
 	
-	List<RequestedDependency<T>> generateDependencyRequests() {
+	protected List<RequestedDependency<T>> generateDependencyRequests() {
 		List<RequestedDependency<T>> requests = new ArrayList<>();
-		if (parent != null && resolvedParent == null)
-			requests.add(new RequestedDependency<>(parent, pd -> { //TODO We should probably get rid of the parent plugin being a dependency
-				resolvedParent = pd;
-				if (!resolvedDependencies.containsKey(pd.getDescription().id()))
-					resolvedDependencies.put(pd.getDescription().id(), pd);
-			}));
-		for (Dependency dependency : dependencies)
-			if (!resolvedDependencies.containsKey(dependency.id()))
-				requests.add(new RequestedDependency<>(dependency, pd -> resolvedDependencies.put(pd.getDescription().id(), pd)));
+		synchronized (resolvedParent) {
+			if (parent != null && resolvedParent == null)
+				requests.add(new RequestedDependency<>(this.getDescription().id(), parent, "[any]", pd -> { //TODO We might want to get rid of the parent plugin being a dependency
+					synchronized (dependenciesLock.writeLock()) {
+						resolvedParent = pd;
+						if (!resolvedDependencies.containsKey(pd.getDescription().id()))
+							resolvedDependencies.put(pd.getDescription().id(), pd);
+						logger.log(Level.INFO, "Resolved the parent plugin, " + parent + ", of " + getDescription().id() + " with {" +
+								pd.getDescription().id() + ", " + pd.getDescription().version() + "}");
+					}
+				}));
+		}
+		synchronized (dependenciesLock.readLock()) {
+			for (Dependency dependency : dependencies)
+				if (!resolvedDependencies.containsKey(dependency.id()))
+					requests.add(new RequestedDependency<>(this.getDescription().id(), dependency, pd -> {
+						synchronized (dependenciesLock.writeLock()) {
+							resolvedDependencies.put(pd.getDescription().id(), pd);
+							logger.log(Level.INFO, "Resolved the dependency, {" + dependency.id() + ", " + dependency.version() + "}, for " +
+									getDescription().id() + " with {" + pd.getDescription() + ", " + pd.getDescription().version() + "}");
+						}
+					}));
+		}
 		return requests;
 	}
 	
-	Set<Entry<String, PluginData<T>>> getResolvedDependencies() {
-		return resolvedDependencies.entrySet();
-	}
-	
-	boolean isConstructed() {
-		return instance != null;
-	}
-	
-	T construct(Object[] args) throws PluginConstructionException {
-		if (!isLinkable())
-			throw new PluginConstructionException("Attempted to construct the plugin, " + annotation.id() + ", but it was not linkable.");
-		if (instance != null) //Plugins can only be constructed once.
-			return instance;
-		Class<?>[] types = (Class[]) Array.newInstance(Class.class, args.length);
-		for (int i = 0; i < args.length; i++)
-			types[i] = args[i].getClass();
-		try {
-			return instance = clazz.getConstructor(types).newInstance(args);
+	protected Set<Entry<String, PluginData<T>>> getResolvedDependencies() {
+		synchronized (dependenciesLock.readLock()) {
+			return resolvedDependencies.entrySet();
 		}
-		catch (Exception e) {
-			throw new PluginConstructionException(e);
+	}
+	
+	public boolean isConstructed() {
+		synchronized (constructionLock) {
+			return instance != null;
+		}
+	}
+	
+	public T construct(Object[] args) throws PluginConstructionException, UnlinkablePluginException {
+		synchronized (constructionLock) {
+			if (!isLinkable(true))
+				throw new UnlinkablePluginException("Attempted to construct the plugin, " + annotation.id() + ", but it was not linkable.");
+			if (instance != null) { //Plugins can only be constructed once.
+				logger.log(Level.WARNING, "Attempted to construct the plugin, " + annotation.id() +
+						", but it has already been constructed.  Returning existing instance instead.");
+				return instance;
+			}
+			Class<?>[] types = (Class[]) Array.newInstance(Class.class, args.length);
+			for (int i = 0; i < args.length; i++)
+				types[i] = args[i].getClass();
+			try {
+				return instance = clazz.getConstructor(types).newInstance(args);
+			}
+			catch (Exception e) {
+				throw new PluginConstructionException(e);
+			}
 		}
 	}
 	
@@ -85,8 +125,11 @@ public class PluginData<T> {
 		return linkable = tester.isLinkable(this);
 	}
 	
-	void markLinkable() {
-		linkable = true;
+	private void markLinkable() {
+		synchronized (linkabilityTestLock.writeLock()) {
+			if (!isLinkable(false))
+				linkable = true;
+		}
 	}
 	
 	/**
@@ -96,11 +139,13 @@ public class PluginData<T> {
 	 *         always considered to be resolved) and all of the plugin's required plugins have been resolved.
 	 */
 	public boolean isResolved() {
-		if (parent != null && resolvedParent == null)
-			return false;
-		if (resolvedDependencies.size() < dependencies.length)
-			return false;
-		return true;
+		synchronized (dependenciesLock.readLock()) {
+			if (parent != null && resolvedParent == null)
+				return false;
+			if (resolvedDependencies.size() < dependencies.length)
+				return false;
+			return true;
+		}
 	}
 	
 	/**
