@@ -20,6 +20,13 @@ import toberumono.plugin.annotations.PluginDescription;
 import toberumono.plugin.exceptions.PluginConstructionException;
 import toberumono.plugin.exceptions.UnlinkablePluginException;
 
+/**
+ * A container for managing the metadata associated with a plugin by a {@link PluginManager}.
+ * 
+ * @author Toberumono
+ * @param <T>
+ *            the type of the plugin being managed
+ */
 public class PluginData<T> {
 	private final Class<? extends T> clazz;
 	private final PluginDescription annotation;
@@ -33,9 +40,26 @@ public class PluginData<T> {
 	private T instance;
 	private Boolean linkable;
 	
+	/**
+	 * Constructs a new {@link PluginData} container with the default {@link Logger}
+	 * ({@code Logger.getLogger("toberumono.plugin.manager.PluginData")}).
+	 * 
+	 * @param clazz
+	 *            the {@link Class} corresponding to the plugin that this {@link PluginData} instance will be managing
+	 * @see #PluginData(Class, Logger)
+	 */
 	public PluginData(Class<? extends T> clazz) {
 		this(clazz, Logger.getLogger("toberumono.plugin.manager.PluginData"));
 	}
+	
+	/**
+	 * Constructs a new {@link PluginData} container with the given {@link Logger}.
+	 * 
+	 * @param clazz
+	 *            the {@link Class} corresponding to the plugin that this {@link PluginData} instance will be managing
+	 * @param logger
+	 *            the {@link Logger} to which logging data should be sent
+	 */
 	public PluginData(Class<? extends T> clazz, Logger logger) {
 		this.clazz = clazz;
 		this.logger = logger;
@@ -85,12 +109,33 @@ public class PluginData<T> {
 		}
 	}
 	
+	/**
+	 * Determines whether this plugin has been constructed.<br>
+	 * A plugin has been constructed if the instance stored in this {@link PluginData} is non-null.
+	 * 
+	 * @return {@code true} iff this plugin has been constructed
+	 */
 	public boolean isConstructed() {
 		synchronized (constructionLock) {
 			return instance != null;
 		}
 	}
 	
+	/**
+	 * Attempts to construct an instance of the plugin with the given arguments if the plugin has not already been
+	 * constructed. If the plugin has already been constructed, it returns the constructed instance of the plugin.<br>
+	 * Plugins are only constructible if they are {@link #isLinkable() linkable}.
+	 * 
+	 * @param args
+	 *            the arguments to pass to the constructor
+	 * @return a constructed instance of the plugin
+	 * @throws PluginConstructionException
+	 *             if a constructor matching the given arguments cannot be found or some other problem occurs while
+	 *             constructing the plugin
+	 * @throws UnlinkablePluginException
+	 *             if the plugin is not linkable when this method is called
+	 * @see #isLinkable()
+	 */
 	public T construct(Object[] args) throws PluginConstructionException, UnlinkablePluginException {
 		synchronized (constructionLock) {
 			if (!isLinkable(true))
@@ -114,13 +159,33 @@ public class PluginData<T> {
 	
 	/**
 	 * A plugin is linkable iff all of it's dependencies have been resolved and all of those dependencies are themselves
-	 * linkable.
+	 * linkable.<br>
+	 * If the plugin has not already been marked as linkable, then calling this method will result in an attempt to determine
+	 * if the plugin is linkable, which can become somewhat expensive as the number of plugins increases. Therefore, it is
+	 * recommended that this method be called as infrequently as possible.<br>
+	 * Forwards to {@link #isLinkable(boolean) isLinkable(true)}.
 	 * 
 	 * @return {@code true} iff the plugin is linkable
+	 * @see #isLinkable(boolean)
 	 */
 	public boolean isLinkable() {
 		return isLinkable(true);
 	}
+	
+	/**
+	 * /** A plugin is linkable iff all of it's dependencies have been resolved and all of those dependencies are themselves
+	 * linkable.<br>
+	 * If the plugin has not already been marked as linkable and <tt>performTest</tt> is {@code true}, then calling this
+	 * method will result in an attempt to determine if the plugin is linkable, which can become somewhat expensive as the
+	 * number of plugins increases. Therefore, it is recommended that this method be called with <tt>performTest</tt> as
+	 * {@code true} as infrequently as possible.
+	 * 
+	 * @param performTest
+	 *            whether to attempt to determine whether this plugin is linkable if it has not already been marked as
+	 *            linkable
+	 * @return {@code true} iff the plugin is linkable
+	 * @see #isLinkable()
+	 */
 	public boolean isLinkable(boolean performTest) {
 		synchronized (linkabilityTestLock.readLock()) {
 			if (linkable)
@@ -151,6 +216,17 @@ public class PluginData<T> {
 			return false;
 		}
 	}
+	
+	/**
+	 * Fills in <tt>visited</tt> with all of the dependencies that must be resolved in order for this plugin and all plugins
+	 * with which it has a circular dependency to be linkable.
+	 * 
+	 * @param visited
+	 *            a {@link Map} containing all of the visited plugins
+	 * @param plugin
+	 *            the plugin currently being tested and (if applicable) added to the map
+	 * @return {@code true} iff all plugins in the map are resolved
+	 */
 	private boolean generateDependencyMap(Map<String, PluginData<T>> visited, PluginData<T> plugin) {
 		if (plugin.isLinkable(false))
 			return true;
