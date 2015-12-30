@@ -3,7 +3,6 @@ package toberumono.plugin.manager;
 import java.util.function.Consumer;
 
 import toberumono.plugin.annotations.Dependency;
-import toberumono.plugin.annotations.PluginDescription;
 
 class RequestedDependency<T> {
 	private final String requestorId, requestedId, requestedVersion;
@@ -28,8 +27,7 @@ class RequestedDependency<T> {
 		synchronized (satisfied) {
 			if (isSatisfied())
 				return false;
-			PluginDescription pd = satisfier.getDescription();
-			if (!pd.id().equals(requestedId))
+			if (!satisfier.getID().equals(requestedId))
 				return false;
 			satisfied = true;
 			onSatisfaction.accept(satisfier);

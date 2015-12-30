@@ -29,12 +29,12 @@ import toberumono.plugin.exceptions.UnlinkablePluginException;
  */
 public class PluginData<T> {
 	private final Class<? extends T> clazz;
-	private final PluginDescription annotation;
+	private final PluginDescription description;
 	private final String parent;
 	private final Dependency[] dependencies;
 	private final Map<String, PluginData<T>> resolvedDependencies;
 	private final Logger logger;
-	private final Lock constructionLock;
+	private final Lock constructionLock, parentLock;
 	private final ReadWriteLock linkabilityTestLock, dependenciesLock;
 	private PluginData<? extends T> resolvedParent;
 	private T instance;
@@ -63,11 +63,12 @@ public class PluginData<T> {
 	public PluginData(Class<? extends T> clazz, Logger logger) {
 		this.clazz = clazz;
 		this.logger = logger;
-		annotation = clazz.getAnnotation(PluginDescription.class);
-		parent = annotation.parent().equalsIgnoreCase("[none]") ? null : annotation.parent();
+		description = clazz.getAnnotation(PluginDescription.class);
+		parent = description.parent().length() == 0 || description.parent().equalsIgnoreCase("[none]") ? null : description.parent();
 		dependencies = clazz.getAnnotationsByType(Dependency.class);
 		resolvedDependencies = new LinkedHashMap<>();
 		constructionLock = new ReentrantLock();
+		parentLock = new ReentrantLock();
 		linkabilityTestLock = new ReentrantReadWriteLock();
 		dependenciesLock = new ReentrantReadWriteLock();
 		resolvedParent = null;
@@ -77,26 +78,34 @@ public class PluginData<T> {
 	
 	protected List<RequestedDependency<T>> generateDependencyRequests() {
 		List<RequestedDependency<T>> requests = new ArrayList<>();
-		synchronized (resolvedParent) {
+		synchronized (parentLock) {
 			if (parent != null && resolvedParent == null)
-				requests.add(new RequestedDependency<>(this.getDescription().id(), parent, "[any]", pd -> { //TODO We might want to get rid of the parent plugin being a dependency
-					synchronized (dependenciesLock.writeLock()) {
-						resolvedParent = pd;
-						if (!resolvedDependencies.containsKey(pd.getDescription().id()))
-							resolvedDependencies.put(pd.getDescription().id(), pd);
-						logger.log(Level.INFO, "Resolved the parent plugin, " + parent + ", of " + getDescription().id() + " with {" +
-								pd.getDescription().id() + ", " + pd.getDescription().version() + "}");
+				requests.add(new RequestedDependency<>(this.getID(), parent, "[any]", pd -> { //TODO We might want to get rid of the parent plugin being a dependency
+					synchronized (parentLock) {
+						if (resolvedParent != null)
+							return;
+						synchronized (dependenciesLock.writeLock()) {
+							if (resolvedDependencies.containsKey(pd.getID())) //If we've already resolved a plugin that matches the parent plugin's ID, use that.
+								pd = resolvedDependencies.get(pd.getID());
+							else
+								resolvedDependencies.put(pd.getID(), pd);
+							resolvedParent = pd;
+							logger.log(Level.INFO, "Resolved the parent plugin, " + parent + ", of " + getID() + " with {" +
+									pd.getID() + ", " + pd.getVersion() + "}");
+						}
 					}
 				}));
 		}
 		synchronized (dependenciesLock.readLock()) {
 			for (Dependency dependency : dependencies)
 				if (!resolvedDependencies.containsKey(dependency.id()))
-					requests.add(new RequestedDependency<>(this.getDescription().id(), dependency, pd -> {
+					requests.add(new RequestedDependency<>(this.getID(), dependency, pd -> {
 						synchronized (dependenciesLock.writeLock()) {
-							resolvedDependencies.put(pd.getDescription().id(), pd);
+							if (resolvedDependencies.containsKey(pd.getID()))
+								return;
+							resolvedDependencies.put(pd.getID(), pd);
 							logger.log(Level.INFO, "Resolved the dependency, {" + dependency.id() + ", " + dependency.version() + "}, for " +
-									getDescription().id() + " with {" + pd.getDescription() + ", " + pd.getDescription().version() + "}");
+									getID() + " with {" + pd.getID() + ", " + pd.getVersion() + "}");
 						}
 					}));
 		}
@@ -139,9 +148,9 @@ public class PluginData<T> {
 	public T construct(Object[] args) throws PluginConstructionException, UnlinkablePluginException {
 		synchronized (constructionLock) {
 			if (!isLinkable(true))
-				throw new UnlinkablePluginException("Attempted to construct the plugin, " + annotation.id() + ", but it was not linkable.");
+				throw new UnlinkablePluginException("Attempted to construct the plugin, " + description.id() + ", but it was not linkable.");
 			if (instance != null) { //Plugins can only be constructed once.
-				logger.log(Level.WARNING, "Attempted to construct the plugin, " + annotation.id() +
+				logger.log(Level.WARNING, "Attempted to construct the plugin, " + description.id() +
 						", but it has already been constructed.  Returning existing instance instead.");
 				return instance;
 			}
@@ -198,16 +207,16 @@ public class PluginData<T> {
 	
 	private boolean linkablilityTest() {
 		synchronized (linkabilityTestLock.writeLock()) {
-			if (isLinkable(false))
+			if (isLinkable(false)) //To account for the brief window in which the thread calling this method does not have either of the linkabilityTestLock's sub-locks
 				return true;
 			Map<String, PluginData<T>> visited = new HashMap<>();
 			if (generateDependencyMap(visited, this)) {
 				/*
-				 * At this point, visited holds every dependency that must be resolved in order for all of the plugins in any circular
-				 * dependencies that this plugin is a part of to be linkable.
+				 * At this point, visited holds every dependency (and those dependencies' dependencies (recursively)) that must be resolved in order
+				 * for this plugin and all of the plugins in any circular dependencies that this plugin is a part of to be linkable.
 				 * Therefore, so long as every plugin in visited can be resolved, every plugin in visited is linkable.
-				 * Furthermore, because every plugin in visited is tested for resolvability while being added, we know that all plugins
-				 * in visited are resolvable.
+				 * Furthermore, because every plugin in visited is tested for resolvability while being added, and the generation aborts and returns false if any of
+				 * the visited plugins fail the test, we know that all plugins in visited are resolvable.
 				 * Thus, we can flag every plugin in visited as linkable.
 				 */
 				visited.values().forEach(PluginData<T>::markLinkable);
@@ -232,9 +241,9 @@ public class PluginData<T> {
 			return true;
 		if (!plugin.isResolved())
 			return false;
-		if (visited.containsKey(plugin.getDescription().id()))
+		if (visited.containsKey(plugin.getID()))
 			return true;
-		visited.put(plugin.getDescription().id(), plugin);
+		visited.put(plugin.getID(), plugin);
 		for (Entry<String, PluginData<T>> dependency : plugin.getResolvedDependencies())
 			if (!visited.containsKey(dependency.getKey()) && !generateDependencyMap(visited, dependency.getValue()))
 				return false;
@@ -265,21 +274,23 @@ public class PluginData<T> {
 	}
 	
 	/**
-	 * Determines whether the {@link ManageablePlugin} described by the {@link PluginData} satisfies the given requirement.
-	 * 
-	 * @param requirement
-	 *            a {@link Dependency} annotation containing the required id and version
-	 * @return {@code true} iff the {@link ManageablePlugin} described by the {@link PluginData} has been resolved and the ID
-	 *         and version of the described {@link ManageablePlugin} match the ID and version of the given requirement
-	 */
-	public boolean satisfiesRequirement(Dependency requirement) {
-		return annotation.id().equals(requirement.id()) && (requirement.version().equalsIgnoreCase("[any]") || annotation.version().equals(requirement.version()));
-	}
-	
-	/**
 	 * @return the {@link PluginDescription} annotation that describes the plugin
 	 */
 	public PluginDescription getDescription() {
-		return this.annotation;
+		return description;
+	}
+	
+	/**
+	 * @return the ID of the plugin being managed
+	 */
+	public String getID() {
+		return getDescription().id();
+	}
+	
+	/**
+	 * @return the version of the plugin being managed
+	 */
+	public String getVersion() {
+		return getDescription().version();
 	}
 }
