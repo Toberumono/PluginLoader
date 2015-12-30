@@ -119,10 +119,50 @@ public class PluginData<T> {
 	 * @return {@code true} iff the plugin is linkable
 	 */
 	public boolean isLinkable() {
-		if (linkable)
+		return isLinkable(true);
+	}
+	public boolean isLinkable(boolean performTest) {
+		synchronized (linkabilityTestLock.readLock()) {
+			if (linkable)
+				return true;
+			if (!performTest)
+				return false;
+		}
+		return linkablilityTest();
+	}
+	
+	private boolean linkablilityTest() {
+		synchronized (linkabilityTestLock.writeLock()) {
+			if (isLinkable(false))
+				return true;
+			Map<String, PluginData<T>> visited = new HashMap<>();
+			if (generateDependencyMap(visited, this)) {
+				/*
+				 * At this point, visited holds every dependency that must be resolved in order for all of the plugins in any circular
+				 * dependencies that this plugin is a part of to be linkable.
+				 * Therefore, so long as every plugin in visited can be resolved, every plugin in visited is linkable.
+				 * Furthermore, because every plugin in visited is tested for resolvability while being added, we know that all plugins
+				 * in visited are resolvable.
+				 * Thus, we can flag every plugin in visited as linkable.
+				 */
+				visited.values().forEach(PluginData<T>::markLinkable);
+				return true;
+			}
+			return false;
+		}
+	}
+	private boolean generateDependencyMap(Map<String, PluginData<T>> visited, PluginData<T> plugin) {
+		if (plugin.isLinkable(false))
 			return true;
-		LinkabilityTester<T> tester = new LinkabilityTester<>();
-		return linkable = tester.isLinkable(this);
+		if (!plugin.isResolved())
+			return false;
+		if (visited.containsKey(plugin.getDescription().id()))
+			return true;
+		visited.put(plugin.getDescription().id(), plugin);
+		for (Entry<String, PluginData<T>> dependency : plugin.getResolvedDependencies())
+			if (!visited.containsKey(dependency.getKey()) && !generateDependencyMap(visited, dependency.getValue()))
+				return false;
+		return true;
 	}
 	
 	private void markLinkable() {
@@ -165,48 +205,5 @@ public class PluginData<T> {
 	 */
 	public PluginDescription getDescription() {
 		return this.annotation;
-	}
-}
-
-class LinkabilityTester<T> {
-	private final Map<String, PluginData<T>> visited;
-	private final Map<String, PluginData<T>> dependencies;
-	
-	public LinkabilityTester() {
-		visited = new HashMap<>();
-		dependencies = new HashMap<>();
-	}
-	
-	public boolean isLinkable(PluginData<T> plugin) {
-		if (!generateDependencies(plugin))
-			return false;
-		//At this point, dependencies holds every dependency that must be satisfied other than those that are explicitly circular.
-		//Therefore, so long as every plugin in this map can be resolved, every visited plugin must be linkable.
-		//Furthermore, because every plugin in the map is tested for resolvability prior to being added, we know that all plugins
-		//in the map are resolvable
-		//Thus, we can flag every plugin in the visited map as linkable.
-		for (PluginData<T> pd : visited.values())
-			pd.markLinkable();
-		return true;
-	}
-	
-	private boolean generateDependencies(PluginData<T> plugin) {
-		if (plugin.isLinkable())
-			return true;
-		if (!plugin.isResolved())
-			return false;
-		if (visited.containsKey(plugin.getDescription().id())) {
-			dependencies.remove(plugin.getDescription().id()); //If we're already checking all of the dependencies for a plugin, then we don't need to directly check it.
-			return true;
-		}
-		visited.put(plugin.getDescription().id(), plugin);
-		for (Entry<String, PluginData<T>> dependency : plugin.getResolvedDependencies()) {
-			if (visited.containsKey(dependency.getKey()))
-				continue;
-			dependencies.put(dependency.getKey(), dependency.getValue());
-			if (!generateDependencies(dependency.getValue()))
-				return false;
-		}
-		return true;
 	}
 }
