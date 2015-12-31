@@ -8,7 +8,7 @@ import toberumono.plugin.manager.ManageablePlugin;
  *
  * @author Toberumono
  */
-public class UnlinkablePluginException extends PluginException {
+public class UnlinkablePluginException extends DependencyComputationException {
 	
 	/**
 	 * Constructs a new exception with {@code null} as its detail message. The cause is not initialized, and may subsequently

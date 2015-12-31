@@ -1,17 +1,19 @@
 package toberumono.plugin.exceptions;
 
+import toberumono.plugin.user.PluginUser;
+
 /**
- * Thrown when constructing a plugin fails.
+ * Thrown when activating a plugin fails (generally by the {@link PluginUser#activatePlugin} method).
  *
  * @author Toberumono
  */
-public class PluginConstructionException extends PluginInitializationException {
+public class PluginActivationException extends PluginInitializationException {
 	
 	/**
 	 * Constructs a new exception with {@code null} as its detail message. The cause is not initialized, and may subsequently
 	 * be initialized by a call to {@link #initCause}.
 	 */
-	public PluginConstructionException() {
+	public PluginActivationException() {
 		super();
 	}
 	
@@ -22,7 +24,7 @@ public class PluginConstructionException extends PluginInitializationException {
 	 * @param message
 	 *            the detail message. The detail message is saved for later retrieval by the {@link #getMessage()} method.
 	 */
-	public PluginConstructionException(String message) {
+	public PluginActivationException(String message) {
 		super(message);
 	}
 	
@@ -38,7 +40,7 @@ public class PluginConstructionException extends PluginInitializationException {
 	 *            the cause (which is saved for later retrieval by the {@link #getCause()} method). (A {@code null} value is
 	 *            permitted, and indicates that the cause is nonexistent or unknown.)
 	 */
-	public PluginConstructionException(String message, Throwable cause) {
+	public PluginActivationException(String message, Throwable cause) {
 		super(message, cause);
 	}
 	
@@ -51,7 +53,7 @@ public class PluginConstructionException extends PluginInitializationException {
 	 *            the cause (which is saved for later retrieval by the {@link #getCause()} method). (A {@code null} value is
 	 *            permitted, and indicates that the cause is nonexistent or unknown.)
 	 */
-	public PluginConstructionException(Throwable cause) {
+	public PluginActivationException(Throwable cause) {
 		super(cause);
 	}
 }

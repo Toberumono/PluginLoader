@@ -1,17 +1,17 @@
 package toberumono.plugin.exceptions;
 
 /**
- * Thrown when constructing a plugin fails.
+ * Root exception for the dependency computation process.
  *
  * @author Toberumono
  */
-public class PluginConstructionException extends PluginInitializationException {
+public class DependencyComputationException extends PluginException {
 	
 	/**
 	 * Constructs a new exception with {@code null} as its detail message. The cause is not initialized, and may subsequently
 	 * be initialized by a call to {@link #initCause}.
 	 */
-	public PluginConstructionException() {
+	public DependencyComputationException() {
 		super();
 	}
 	
@@ -22,7 +22,7 @@ public class PluginConstructionException extends PluginInitializationException {
 	 * @param message
 	 *            the detail message. The detail message is saved for later retrieval by the {@link #getMessage()} method.
 	 */
-	public PluginConstructionException(String message) {
+	public DependencyComputationException(String message) {
 		super(message);
 	}
 	
@@ -38,7 +38,7 @@ public class PluginConstructionException extends PluginInitializationException {
 	 *            the cause (which is saved for later retrieval by the {@link #getCause()} method). (A {@code null} value is
 	 *            permitted, and indicates that the cause is nonexistent or unknown.)
 	 */
-	public PluginConstructionException(String message, Throwable cause) {
+	public DependencyComputationException(String message, Throwable cause) {
 		super(message, cause);
 	}
 	
@@ -51,7 +51,7 @@ public class PluginConstructionException extends PluginInitializationException {
 	 *            the cause (which is saved for later retrieval by the {@link #getCause()} method). (A {@code null} value is
 	 *            permitted, and indicates that the cause is nonexistent or unknown.)
 	 */
-	public PluginConstructionException(Throwable cause) {
+	public DependencyComputationException(Throwable cause) {
 		super(cause);
 	}
 }
