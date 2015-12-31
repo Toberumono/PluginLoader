@@ -3,6 +3,7 @@ package toberumono.plugin.manager;
 import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -15,6 +16,12 @@ import java.util.logging.Logger;
 import toberumono.utils.files.LoggedFileWalker;
 import toberumono.utils.functions.IOExceptedFunction;
 
+/**
+ * An implementation of {@link FileVisitor} specifically for use with {@link PluginManager}. This is used to work out which
+ * plugins are in the directories that the constructing {@link PluginManager} is told to use.
+ * 
+ * @author Toberumono
+ */
 public class PluginWalker extends LoggedFileWalker {
 	private final PackageKernel pk;
 	private final Predicate<Path> isLoaded;
@@ -22,12 +29,25 @@ public class PluginWalker extends LoggedFileWalker {
 	private final Consumer<String> onFind;
 	private final IOExceptedFunction<Path, FileSystem> fileSystemMaker;
 	
+	/**
+	 * Creates a new {@link PluginWalker}.
+	 * 
+	 * @param blacklistedPackages
+	 *            used to determine which packages to skip when finding classes
+	 * @param isLoaded
+	 *            returns true iff a class with the given name has already been loaded
+	 * @param onFind
+	 *            what to do when a new class is found
+	 * @param fileSystemMaker
+	 *            a function that takes a {@link Path} and returns a {@link FileSystem} (used for .jar and .zip)
+	 * @param log
+	 *            the {@link Logger} to use
+	 */
 	public PluginWalker(Collection<String> blacklistedPackages, Predicate<Path> isLoaded, Consumer<String> onFind, IOExceptedFunction<Path, FileSystem> fileSystemMaker, Logger log) {
 		this(blacklistedPackages, isLoaded, onFind, fileSystemMaker, log, new PackageKernel());
 	}
 	
-	private PluginWalker(Collection<String> blacklistedPackages, Predicate<Path> isLoaded, Consumer<String> onFind, IOExceptedFunction<Path, FileSystem> fileSystemMaker, Logger log,
-			PackageKernel pk) {
+	private PluginWalker(Collection<String> blacklistedPackages, Predicate<Path> isLoaded, Consumer<String> onFind, IOExceptedFunction<Path, FileSystem> fileSystemMaker, Logger log, PackageKernel pk) {
 		super("Started Scanning", "Scanned", "Finished Scanning", p -> {
 			String name = p.getFileName().toString();
 			return (name.endsWith(".jar") || name.endsWith(".zip") || name.endsWith(".class")) && !isLoaded.test(p);
