@@ -5,18 +5,20 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -58,6 +60,7 @@ public class PluginManager<T> extends FileManager {
 	private final Map<String, PluginData<T>> plugins;
 	private final List<RequestedDependency<T>> requestedDependencies;
 	private final Lock pluginMapLock;
+	private final ReadWriteLock requestedDependenciesLock;
 	private final Logger logger;
 	private final Map<FileSystem, Path> opened;
 	private final ExceptedConsumer<T> onInitialization;
@@ -147,13 +150,14 @@ public class PluginManager<T> extends FileManager {
 			if (!this.blacklistedPackages.contains(PROJECT_ROOT_PACKAGE))
 				this.blacklistedPackages.addAll(DEFAULT_BLACKLISTED_PACKAGES);
 		}
-		catch (UnsupportedOperationException e) {
+		catch (UnsupportedOperationException e) { //This accounts for unmodifiable collections
 			logger.log(Level.WARNING, "Unable to add '" + PROJECT_ROOT_PACKAGE + "' to the blocked packages for a PluginManager.  This poses a significant security risk.");
 		}
 		this.onInitialization = onInitialization;
 		pluginMapLock = new ReentrantLock();
+		requestedDependenciesLock = new ReentrantReadWriteLock();
 		plugins = new LinkedHashMap<>();
-		requestedDependencies = new ArrayList<>();
+		requestedDependencies = new LinkedList<>();
 		postInitFailures = new LinkedHashSet<>();
 	}
 	
@@ -277,14 +281,15 @@ public class PluginManager<T> extends FileManager {
 			synchronized (pluginMapLock) {
 				PluginDescription info = clazz.getAnnotation(PluginDescription.class);
 				String id = info.id();
-				if (plugins.containsKey(id)) {
+				if (plugins.containsKey(id)) { //TODO Implement plugin removal
 					logger.log(Level.WARNING, "Attempted to load a plugin with the ID, " + id + ", but another plugin with that ID has already been loaded.");
 					return;
 				}
 				PluginData<T> pd = new PluginData<>(clazz);
 				plugins.put(id, pd);
-				synchronized (requestedDependencies) {
-					requestedDependencies.addAll(pd.generateDependencyRequests());
+				synchronized (requestedDependenciesLock.writeLock()) {
+					for (RequestedDependency<T> rd : pd.generateDependencyRequests(requestedDependenciesLock))
+						requestedDependencies.add(rd);
 				}
 			}
 		}
@@ -297,15 +302,16 @@ public class PluginManager<T> extends FileManager {
 	 */
 	public boolean resolve() {
 		synchronized (pluginMapLock) {
-			synchronized (requestedDependencies) { //While this is a bit wordy, it runs in O(plugins * requestedDependencies) instead of O(plugins * requestedDependencies ^ 2)
-				List<RequestedDependency<T>> unsatisfied = new ArrayList<>(requestedDependencies.size());
+			synchronized (requestedDependenciesLock.writeLock()) {
+				Iterator<RequestedDependency<T>> iter = null;
+				RequestedDependency<T> request = null;
 				for (PluginData<T> satisfier : plugins.values()) {
-					for (RequestedDependency<T> rd : requestedDependencies)
-						if (!rd.trySatisfy(satisfier))
-							unsatisfied.add(rd);
-					requestedDependencies.clear();
-					requestedDependencies.addAll(unsatisfied);
-					unsatisfied.clear();
+					iter = requestedDependencies.iterator();
+					while (iter.hasNext()) {
+						request = iter.next();
+						if (satisfier.satisfyDependency(request))
+							iter.remove();
+					}
 				}
 				return requestedDependencies.size() == 0;
 			}
@@ -325,7 +331,7 @@ public class PluginManager<T> extends FileManager {
 	public void initializePlugins(Object... args) throws Exception {
 		synchronized (pluginMapLock) {
 			resolve(); //We cannot initialize plugins without resolving their dependencies first
-			for (PluginData<T> pd : plugins.values()) { //TODO implement plugin initalization ordering
+			for (PluginData<T> pd : plugins.values()) { //TODO implement plugin initialization ordering
 				if (!pd.getDescription().type().shouldInitialize())
 					continue;
 				if (pd.isLinkable() && !pd.isConstructed()) {

@@ -7,6 +7,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -33,17 +34,18 @@ import toberumono.plugin.exceptions.UnlinkablePluginException;
 public class PluginData<T> {
 	private final Class<? extends T> clazz;
 	private final PluginDescription description;
-	private final String parent;
-	private final Dependency[] dependencies;
+	private final DependencyContainer parent;
+	private final DependencyContainer[] dependencies;
 	private final Collection<String> requiredDependencies;
 	private final Map<String, PluginData<T>> resolvedDependencies;
 	private final Logger logger;
 	private final Lock constructionLock, parentLock;
 	private final ReadWriteLock linkabilityTestLock, dependenciesLock;
+	private final List<RequestedDependency<T>> satisfiedDependencies;
 	private PluginData<? extends T> resolvedParent;
 	private T instance;
 	private Boolean linkable;
-	private Integer hashCode;
+	private final int hashCode;
 	
 	/**
 	 * Constructs a new {@link PluginData} container with the default {@link Logger}
@@ -69,13 +71,19 @@ public class PluginData<T> {
 		this.clazz = clazz;
 		this.logger = logger;
 		description = clazz.getAnnotation(PluginDescription.class);
-		parent = description.parent().length() == 0 || description.parent().equalsIgnoreCase("[none]") ? null : description.parent();
-		dependencies = clazz.getAnnotationsByType(Dependency.class);
+		parent = description.parent().length() == 0 || description.parent().equalsIgnoreCase("[none]") ? null
+				: new DependencyContainer(description.parent(), "[any]", true);
+		Dependency[] dependencies = clazz.getAnnotationsByType(Dependency.class);
+		this.dependencies = new DependencyContainer[dependencies.length];
 		requiredDependencies = new LinkedHashSet<>();
-		for (Dependency dep : dependencies)
-			if (dep.required())
-				requiredDependencies.add(dep.id());
+		for (int i = 0; i < dependencies.length; i++) {
+			this.dependencies[i] =
+					new DependencyContainer(dependencies[i].id(), dependencies[i].version(), dependencies[i].required());
+			if (this.dependencies[i].required())
+				requiredDependencies.add(this.dependencies[i].id());
+		}
 		resolvedDependencies = new LinkedHashMap<>();
+		satisfiedDependencies = new LinkedList<>();
 		constructionLock = new ReentrantLock();
 		parentLock = new ReentrantLock();
 		linkabilityTestLock = new ReentrantReadWriteLock();
@@ -83,41 +91,116 @@ public class PluginData<T> {
 		resolvedParent = null;
 		instance = null;
 		linkable = false;
-		hashCode = null;
+		int hash = 17;
+		hash = hash * 31 + this.clazz.hashCode();
+		hash = hash * 31 + this.description.hashCode();
+		hash = hash * 31 + Arrays.hashCode(this.dependencies);
+		hashCode = hash;
 	}
 	
-	protected List<RequestedDependency<T>> generateDependencyRequests() {
+	/**
+	 * Attempts to satisfy the given {@link RequestedDependency}.
+	 * 
+	 * @param dependency
+	 *            the {@link RequestedDependency}
+	 * @return {@code true} iff the {@link RequestedDependency} was satisfied
+	 */
+	public boolean satisfyDependency(RequestedDependency<T> dependency) {
+		if (!dependency.trySatisfy(this))
+			return false;
+		satisfiedDependencies.add(dependency);
+		return true;
+	}
+	
+	/**
+	 * Attempts to remove the plugin described by the {@link PluginData} from its {@link PluginManager}.
+	 * 
+	 * @return {@code true} iff the plugin was successfully removed
+	 */
+	public boolean removePlugin() {
+		throw new UnsupportedOperationException("Plugin removal is not currently implemented."); //TODO May be implemented in the future
+	}
+	
+	private class PluginDataRequestedDependency extends RequestedDependency<T> {
+		
+		public PluginDataRequestedDependency(DependencyContainer dependency, ReadWriteLock requestedDependenciesLock) {
+			super(PluginData.this, dependency, requestedDependenciesLock);
+		}
+		
+		@Override
+		protected boolean applySatisfier(PluginData<T> satisfier) {
+			synchronized (dependenciesLock.writeLock()) {
+				String satID = satisfier.getID();
+				if (resolvedDependencies.containsKey(satID))
+					return false;
+				resolvedDependencies.put(satID, satisfier);
+				logger.log(Level.INFO, "Resolved the dependency, " + getDependency() + ", for " + getID() + " with {" +
+						satID + ", " + satisfier.getVersion() + "}");
+				return true;
+			}
+		}
+		
+		@Override
+		protected boolean unapplySatisfier(PluginData<T> satisfier) {
+			synchronized (dependenciesLock.writeLock()) {
+				String satID = satisfier.getID();
+				if (!resolvedDependencies.containsKey(satID))
+					return false;
+				resolvedDependencies.remove(satID);
+				logger.log(Level.INFO, "Unresolved the dependency, " + getDependency() + ", for " + getID() + " with {" +
+						satID + ", " + satisfier.getVersion() + "}");
+				return true;
+			}
+		}
+	}
+	
+	private class PluginDataParentRequestedDependency extends PluginDataRequestedDependency {
+		
+		public PluginDataParentRequestedDependency(DependencyContainer dependency, ReadWriteLock requestedDependenciesLock) {
+			super(dependency, requestedDependenciesLock);
+		}
+		
+		@Override
+		protected boolean applySatisfier(PluginData<T> satisfier) {
+			synchronized (parentLock) {
+				if (resolvedParent != null)
+					return false;
+				synchronized (dependenciesLock.readLock()) {
+					String satID = satisfier.getID();
+					if (resolvedDependencies.containsKey(satID)) //If we've already resolved a plugin that matches the parent plugin's ID, use that.
+						satisfier = resolvedDependencies.get(satID);
+					resolvedParent = satisfier;
+					logger.log(Level.INFO, "Resolved the parent plugin, " + parent + ", of " + getRequestorID() + " with {" +
+							satID + ", " + satisfier.getVersion() + "}");
+					return true;
+				}
+			}
+		}
+		
+		@Override
+		protected boolean unapplySatisfier(PluginData<T> satisfier) {
+			synchronized (parentLock) {
+				if (resolvedParent == null)
+					return false;
+				PluginData<? extends T> rpt = resolvedParent;
+				resolvedParent = null;
+				logger.log(Level.INFO, "Unresolved the parent plugin, " + rpt.getID() + ", of " + getRequestorID() +
+						" with {" + rpt.getID() + ", " + rpt.getVersion() + "}");
+				return true;
+			}
+		}
+	}
+	
+	protected List<RequestedDependency<T>> generateDependencyRequests(ReadWriteLock requestedDependenciesLock) {
 		List<RequestedDependency<T>> requests = new ArrayList<>();
 		synchronized (parentLock) {
 			if (parent != null && resolvedParent == null)
-				requests.add(new RequestedDependency<>(this.getID(), parent, "[any]", pd -> { //TODO We might want to get rid of the parent plugin being a dependency
-					synchronized (parentLock) {
-						if (resolvedParent != null)
-							return;
-						synchronized (dependenciesLock.writeLock()) {
-							if (resolvedDependencies.containsKey(pd.getID())) //If we've already resolved a plugin that matches the parent plugin's ID, use that.
-								pd = resolvedDependencies.get(pd.getID());
-							else
-								resolvedDependencies.put(pd.getID(), pd);
-							resolvedParent = pd;
-							logger.log(Level.INFO, "Resolved the parent plugin, " + parent + ", of " + getID() + " with {" +
-									pd.getID() + ", " + pd.getVersion() + "}");
-						}
-					}
-				}));
+				requests.add(new PluginDataParentRequestedDependency(parent, requestedDependenciesLock));
 		}
 		synchronized (dependenciesLock.readLock()) {
-			for (Dependency dependency : dependencies)
+			for (DependencyContainer dependency : dependencies)
 				if (!resolvedDependencies.containsKey(dependency.id()))
-					requests.add(new RequestedDependency<>(this.getID(), dependency, pd -> {
-						synchronized (dependenciesLock.writeLock()) {
-							if (resolvedDependencies.containsKey(pd.getID()))
-								return;
-							resolvedDependencies.put(pd.getID(), pd);
-							logger.log(Level.INFO, "Resolved the dependency, {" + dependency.id() + ", " + dependency.version() + "}, for " +
-									getID() + " with {" + pd.getID() + ", " + pd.getVersion() + "}");
-						}
-					}));
+					requests.add(new PluginDataRequestedDependency(dependency, requestedDependenciesLock));
 		}
 		return requests;
 	}
@@ -229,7 +312,8 @@ public class PluginData<T> {
 				 * the visited plugins fail the test, we know that all plugins in visited are resolvable.
 				 * Thus, we can flag every plugin in visited as linkable.
 				 */
-				visited.values().forEach(PluginData<T>::markLinkable);
+				for (PluginData<T> pd : visited.values())
+					pd.markLinkable();
 				return true;
 			}
 			return false;
@@ -264,6 +348,14 @@ public class PluginData<T> {
 		synchronized (linkabilityTestLock.writeLock()) {
 			if (!isLinkable(false))
 				linkable = true;
+		}
+	}
+	
+	@SuppressWarnings("unused")
+	private void unmarkLinkable() {
+		synchronized (linkabilityTestLock.writeLock()) {
+			if (isLinkable(false))
+				linkable = false;
 		}
 	}
 	
@@ -306,31 +398,59 @@ public class PluginData<T> {
 	
 	@Override
 	public boolean equals(Object other) {
-		if (other == null || !(other instanceof PluginData))
+		PluginData<?> o = basicEquals(other);
+		if (o == null)
 			return false;
-		PluginData<?> o = (PluginData<?>) other;
-		if (!clazz.equals(o.clazz) || isLinkable(false) != o.isLinkable(false) || !description.equals(o.description) || dependencies.length != o.dependencies.length ||
-				(parent == null && o.parent != null || (parent != null && !parent.equals(o.parent))) ||
-				(resolvedParent == null && o.resolvedParent != null || (resolvedParent != null && !resolvedParent.equals(o.resolvedParent))) ||
-				!resolvedDependencies.equals(o.resolvedDependencies) || (instance == null && o.instance != null || (instance != null && !instance.equals(o.instance))))
-			return false;
-		outerDependencyLoop: for (int i = 0; i < dependencies.length; i++) {
-			for (int j = 0; j < o.dependencies.length; j++)
+		int j = 0;
+		for (int i = 0; i < dependencies.length; i++) {
+			if (dependencies[i].equals(o.dependencies[i]))
+				continue;
+			for (j = 0; j < o.dependencies.length; j++)
 				if (dependencies[i].equals(o.dependencies[j]))
-					continue outerDependencyLoop;
-			return false;
+					break;
+			if (j == o.dependencies.length) //No dependency was found in the other PluginData's dependency list equal to the ith one in this PluginData's dependency list
+				return false;
 		}
 		return true;
 	}
 	
+	/**
+	 * Equivalent to {@link #equals(Object)}, but it additionally requires that the dependencies are in the same order in
+	 * both this {@link PluginData} and the {@link PluginData} being tested.
+	 * 
+	 * @param other
+	 *            the {@link PluginData} to test
+	 * @return {@code true} iff {@link #equals(Object)} returns {@code true} and the dependencies are in the same order in
+	 *         both this {@link PluginData} and the {@link PluginData} being tested
+	 * @see #equals(Object)
+	 */
+	public boolean strictEquals(Object other) {
+		PluginData<?> o = basicEquals(other);
+		if (o == null)
+			return false;
+		for (int i = 0; i < dependencies.length; i++)
+			if (!dependencies[i].equals(o.dependencies[i]))
+				return false;
+		return true;
+	}
+	
+	private PluginData<?> basicEquals(Object other) {
+		if (other == null || !(other instanceof PluginData))
+			return null;
+		PluginData<?> o = (PluginData<?>) other;
+		if (clazz.equals(o.clazz) && isLinkable(false) == o.isLinkable(false) && description.equals(o.description) &&
+				dependencies.length == o.dependencies.length &&
+				resolvedDependencies.equals(o.resolvedDependencies) &&
+				(parent == null && o.parent == null || (parent != null && parent.equals(o.parent))) &&
+				(resolvedParent == null && o.resolvedParent == null ||
+						(resolvedParent == null && resolvedParent.equals(o.resolvedParent))) &&
+				(instance == null && o.instance == null || (instance != null && instance.equals(o.instance))))
+			return o;
+		return null;
+	}
+	
 	@Override
 	public int hashCode() {
-		if (hashCode != null)
-			return hashCode;
-		int hash = 17;
-		hash = hash * 31 + clazz.hashCode();
-		hash = hash * 31 + description.hashCode();
-		hash = hash * 31 + Arrays.hashCode(dependencies);
-		return hashCode = hash;
+		return hashCode;
 	}
 }

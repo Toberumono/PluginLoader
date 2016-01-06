@@ -1,44 +1,115 @@
 package toberumono.plugin.manager;
 
-import java.util.function.Consumer;
+import java.util.concurrent.locks.ReadWriteLock;
 
-import toberumono.plugin.annotations.Dependency;
-
-class RequestedDependency<T> {
-	private final String requestorId, requestedId, requestedVersion;
-	private final Consumer<PluginData<T>> onSatisfaction;
-	private Boolean satisfied;
-	private Integer hashCode;
+/**
+ * Base class for managing dependency requests.
+ * 
+ * @author Toberumono
+ * @param <T>
+ *            the type of the requesting plugin
+ */
+public abstract class RequestedDependency<T> {
+	private final PluginData<T> requestor;
+	private final DependencyContainer dependency;
+	private final ReadWriteLock requestedDependenciesLock;
+	private PluginData<T> satisfier;
+	private final int hashCode;
 	
-	public RequestedDependency(String requestorId, Dependency dependency, Consumer<PluginData<T>> onSatisfaction) {
-		this(requestorId, dependency.id(), dependency.version(), onSatisfaction);
+	/**
+	 * Creates a new {@link RequestedDependency}.
+	 * 
+	 * @param requestor
+	 *            the {@link PluginData} representing the plugin making the request
+	 * @param dependency
+	 *            the {@link DependencyContainer Dependency} being requested
+	 * @param requestedDependenciesLock
+	 *            the {@link ReadWriteLock} being used for the dependency system
+	 */
+	public RequestedDependency(PluginData<T> requestor, DependencyContainer dependency, ReadWriteLock requestedDependenciesLock) {
+		this.requestor = requestor;
+		this.dependency = dependency;
+		this.requestedDependenciesLock = requestedDependenciesLock;
+		satisfier = null;
+		int hash = 17;
+		hash = hash * 31 + this.requestor.hashCode();
+		hash = hash * 31 + this.dependency.hashCode();
+		hashCode = hash;
 	}
 	
-	public RequestedDependency(String requestorId, String requestedId, String requestedVersion, Consumer<PluginData<T>> onSatisfaction) {
-		this.requestorId = requestorId;
-		this.requestedId = requestedId;
-		this.requestedVersion = requestedVersion;
-		this.onSatisfaction = onSatisfaction;
-		satisfied = false;
-		hashCode = null;
-	}
-	
+	/**
+	 * Attempts to satisfy the {@link RequestedDependency} with the given {@link PluginData}.
+	 * 
+	 * @param satisfier
+	 *            the {@link PluginData} with which the {@link RequestedDependency} might be satisfied
+	 * @return {@code true} iff the {@link RequestedDependency} was satisfied
+	 */
 	public boolean trySatisfy(PluginData<T> satisfier) {
-		synchronized (satisfied) {
-			if (isSatisfied())
+		synchronized (requestedDependenciesLock.writeLock()) {
+			if (isSatisfied() || !satisfier.getID().equals(dependency.id()) || !applySatisfier(satisfier))
 				return false;
-			if (!satisfier.getID().equals(requestedId))
-				return false;
-			satisfied = true;
-			onSatisfaction.accept(satisfier);
+			this.satisfier = satisfier;
 			return true;
 		}
 	}
 	
-	public boolean isSatisfied() {
-		synchronized (satisfied) {
-			return satisfied;
+	protected abstract boolean applySatisfier(PluginData<T> satisfier);
+	
+	/**
+	 * Attempts to notify the {@link RequestedDependency} that the plugin that satisfied it can no longer do so.
+	 * 
+	 * @return {@code true} iff the {@link RequestedDependency} was successfully desatisfied
+	 */
+	public boolean tryDesatisfy() {
+		synchronized (requestedDependenciesLock.writeLock()) {
+			if (!isSatisfied() || !unapplySatisfier(satisfier))
+				return false;
+			satisfier = null;
+			return true;
 		}
+	}
+	
+	protected abstract boolean unapplySatisfier(PluginData<T> satisfier);
+	
+	/**
+	 * @return {@code true} iff the {@link RequestedDependency} has been satisfied (that is, its satisfier is not null)
+	 */
+	public boolean isSatisfied() {
+		synchronized (requestedDependenciesLock.readLock()) {
+			return satisfier != null;
+		}
+	}
+	
+	/**
+	 * @return the ID of the requesting plugin as a {@link String}
+	 */
+	public String getRequestorID() {
+		return requestor.getID();
+	}
+	
+	/**
+	 * @return the {@link DependencyContainer Dependency} being requested
+	 */
+	public DependencyContainer getDependency() {
+		return dependency;
+	}
+	
+	@Override
+	public boolean equals(Object other) {
+		if (!(other instanceof RequestedDependency))
+			return false;
+		RequestedDependency<?> o = (RequestedDependency<?>) other;
+		if (!(requestedDependenciesLock == o.requestedDependenciesLock && requestor.equals(o.requestor) &&
+				getDependency().equals(o.getDependency())))
+			return false;
+		synchronized (requestedDependenciesLock.readLock()) {
+			return isSatisfied() == o.isSatisfied();
+		}
+	}
+	
+	@Override
+	public int hashCode() {
+		return hashCode;
 	}
 	
 	/**
@@ -51,21 +122,6 @@ class RequestedDependency<T> {
 	 */
 	@Override
 	public String toString() {
-		return requestorId + ":{" + requestedId + ", " + requestedVersion + "}:" + satisfied;
-	}
-	
-	@Override
-	public boolean equals(Object other) {
-		if (!(other instanceof RequestedDependency))
-			return false;
-		RequestedDependency<?> o = (RequestedDependency<?>) other;
-		return requestorId.equals(o.requestorId) && requestedId.equals(o.requestedId) && requestedVersion.equals(o.requestedVersion) && satisfied == o.satisfied;
-	}
-	
-	@Override
-	public int hashCode() {
-		if (hashCode == null)
-			hashCode = (requestorId + requestedId + requestedVersion).hashCode();
-		return hashCode;
+		return requestor.getID() + ":" + getDependency() + ":" + isSatisfied();
 	}
 }

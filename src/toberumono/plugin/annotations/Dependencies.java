@@ -17,9 +17,7 @@ import java.lang.annotation.Target;
 @Target(ElementType.TYPE)
 public @interface Dependencies {
 	/**
-	 * Indicates the <em>containing annotation type</em> for the repeatable annotation type.
-	 * 
-	 * @return the containing annotation type
+	 * @return an array containing the dependencies of the annotated plugin
 	 */
 	Dependency[] value();
 }
