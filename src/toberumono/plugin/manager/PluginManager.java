@@ -59,8 +59,7 @@ public class PluginManager<T> extends FileManager {
 	private final Collection<String> blacklistedPackages;
 	private final Map<String, PluginData<T>> plugins;
 	private final List<RequestedDependency<T>> requestedDependencies;
-	private final Lock pluginMapLock;
-	private final ReadWriteLock requestedDependenciesLock;
+	private final ReadWriteLock requestedDependenciesLock, pluginMapLock;
 	private final Logger logger;
 	private final Map<FileSystem, Path> opened;
 	private final ExceptedConsumer<T> onInitialization;
@@ -113,7 +112,8 @@ public class PluginManager<T> extends FileManager {
 	 * @throws IOException
 	 *             if an I/O exception occurs while initializing the {@link PluginManager}
 	 */
-	public PluginManager(Collection<String> blacklistedPackages, ExceptedConsumer<T> onInitialization, ClassLoader parentClassLoader) throws IOException {
+	public PluginManager(Collection<String> blacklistedPackages, ExceptedConsumer<T> onInitialization, ClassLoader parentClassLoader)
+			throws IOException {
 		this(blacklistedPackages, onInitialization, parentClassLoader, FileSystems.getDefault());
 	}
 	
@@ -134,7 +134,8 @@ public class PluginManager<T> extends FileManager {
 	 * @throws IOException
 	 *             if an I/O exception occurs while initializing the {@link PluginManager}
 	 */
-	public PluginManager(Collection<String> blacklistedPackages, ExceptedConsumer<T> onInitialization, ClassLoader parentClassLoader, FileSystem fileSystem) throws IOException {
+	public PluginManager(Collection<String> blacklistedPackages, ExceptedConsumer<T> onInitialization, ClassLoader parentClassLoader,
+			FileSystem fileSystem) throws IOException {
 		super(null, p -> {}, p -> {}, p -> {}, k -> {}, fileSystem); //All null functions are implemented through overriding methods
 		pcl = new PluginClassLoader(parentClassLoader);
 		opened = new LinkedHashMap<>();
@@ -151,10 +152,11 @@ public class PluginManager<T> extends FileManager {
 				this.blacklistedPackages.addAll(DEFAULT_BLACKLISTED_PACKAGES);
 		}
 		catch (UnsupportedOperationException e) { //This accounts for unmodifiable collections
-			logger.log(Level.WARNING, "Unable to add '" + PROJECT_ROOT_PACKAGE + "' to the blocked packages for a PluginManager.  This poses a significant security risk.");
+			logger.log(Level.WARNING, "Unable to add '" + PROJECT_ROOT_PACKAGE +
+					"' to the blocked packages for a PluginManager.  This poses a significant security risk.");
 		}
 		this.onInitialization = onInitialization;
-		pluginMapLock = new ReentrantLock();
+		pluginMapLock = new ReentrantReadWriteLock();
 		requestedDependenciesLock = new ReentrantReadWriteLock();
 		plugins = new LinkedHashMap<>();
 		requestedDependencies = new LinkedList<>();
@@ -205,8 +207,9 @@ public class PluginManager<T> extends FileManager {
 		}
 		else if ((p.endsWith(".jar") || p.endsWith(".zip")) && pcl.addClassLoader(p)) { //We create the ClassLoader for the .jar/.zip file here.
 			try (FileSystem fs = fileSystemMaker.apply(p)) {
-				PluginWalker pw = new PluginWalker(blacklistedPackages, path -> !this.getPaths().contains(path), this::queueClassName, fileSystemMaker,
-						Logger.getLogger(PluginWalker.class.getName()));
+				PluginWalker pw =
+						new PluginWalker(blacklistedPackages, path -> !this.getPaths().contains(path), this::queueClassName, fileSystemMaker,
+								Logger.getLogger(PluginWalker.class.getName()));
 				for (Path dir : fs.getRootDirectories())
 					Files.walkFileTree(dir, pw);
 			}
@@ -259,7 +262,9 @@ public class PluginManager<T> extends FileManager {
 				iter.remove();
 			}
 			catch (IOException e) {
-				logger.log(Level.SEVERE, "Error while attempting to close the FileSystem object for " + open.getValue().toString() + " while closing a PluginManager", e);
+				logger.log(Level.SEVERE,
+						"Error while attempting to close the FileSystem object for " + open.getValue().toString() + " while closing a PluginManager",
+						e);
 				if (except == null)
 					except = e;
 			}
@@ -278,11 +283,12 @@ public class PluginManager<T> extends FileManager {
 		
 		@Override
 		public void run() {
-			synchronized (pluginMapLock) {
+			synchronized (pluginMapLock.writeLock()) {
 				PluginDescription info = clazz.getAnnotation(PluginDescription.class);
 				String id = info.id();
 				if (plugins.containsKey(id)) { //TODO Implement plugin removal
-					logger.log(Level.WARNING, "Attempted to load a plugin with the ID, " + id + ", but another plugin with that ID has already been loaded.");
+					logger.log(Level.WARNING,
+							"Attempted to load a plugin with the ID, " + id + ", but another plugin with that ID has already been loaded.");
 					return;
 				}
 				PluginData<T> pd = new PluginData<>(clazz);
@@ -301,7 +307,7 @@ public class PluginManager<T> extends FileManager {
 	 * @return {@code true} iff all requested {@link Dependency Dependencies} have been satisfied when this method returns
 	 */
 	public boolean resolve() {
-		synchronized (pluginMapLock) {
+		synchronized (pluginMapLock.readLock()) {
 			synchronized (requestedDependenciesLock.writeLock()) {
 				Iterator<RequestedDependency<T>> iter = null;
 				RequestedDependency<T> request = null;

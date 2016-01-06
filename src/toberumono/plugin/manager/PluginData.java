@@ -106,10 +106,12 @@ public class PluginData<T> {
 	 * @return {@code true} iff the {@link RequestedDependency} was satisfied
 	 */
 	public boolean satisfyDependency(RequestedDependency<T> dependency) {
-		if (!dependency.trySatisfy(this))
-			return false;
-		satisfiedDependencies.add(dependency);
-		return true;
+		synchronized (satisfiedDependencies) {
+			if (!dependency.trySatisfy(this))
+				return false;
+			satisfiedDependencies.add(dependency);
+			return true;
+		}
 	}
 	
 	/**
