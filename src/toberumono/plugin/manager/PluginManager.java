@@ -59,6 +59,7 @@ public class PluginManager<T> extends FileManager {
 	private final Collection<String> blacklistedPackages;
 	private final Map<String, PluginData<T>> plugins;
 	private final List<RequestedDependency<T>> requestedDependencies;
+	private final Lock dependencySatisfiersLock;
 	private final ReadWriteLock requestedDependenciesLock, pluginMapLock;
 	private final Logger logger;
 	private final Map<FileSystem, Path> opened;
@@ -157,6 +158,7 @@ public class PluginManager<T> extends FileManager {
 		}
 		this.onInitialization = onInitialization;
 		pluginMapLock = new ReentrantReadWriteLock();
+		dependencySatisfiersLock = new ReentrantLock();
 		requestedDependenciesLock = new ReentrantReadWriteLock();
 		plugins = new LinkedHashMap<>();
 		requestedDependencies = new LinkedList<>();
@@ -298,6 +300,42 @@ public class PluginManager<T> extends FileManager {
 						requestedDependencies.add(rd);
 				}
 			}
+		}
+	}
+	
+	class DependencySatisfier implements Runnable {
+		private final RequestedDependency<T> dependency;
+		
+		public DependencySatisfier(RequestedDependency<T> dependency) {
+			this.dependency = dependency;
+		}
+		
+		@Override
+		public void run() {
+			mainLoop: while (true)
+				try {
+					pluginMapLock.readLock().lockInterruptibly();
+					for (PluginData<T> plugin : plugins.values())
+						if (plugin.satisfyDependency(dependency))
+							break;
+					if (!dependency.isSatisfied()) {
+						try {
+							dependencySatisfiersLock.lockInterruptibly();
+							pluginMapLock.readLock().unlock();
+							dependencySatisfiersLock.wait();
+						}
+						finally {
+							pluginMapLock.readLock().lock();
+							dependencySatisfiersLock.unlock();
+						}
+					}
+				}
+				catch (InterruptedException e1) {
+					break mainLoop;
+				}
+				finally {
+					pluginMapLock.readLock().unlock();
+				}
 		}
 	}
 	
