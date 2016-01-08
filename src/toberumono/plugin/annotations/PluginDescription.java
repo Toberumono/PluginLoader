@@ -17,10 +17,10 @@ import java.lang.annotation.Target;
 @Target(ElementType.TYPE)
 public @interface PluginDescription {
 	/**
-	 * A unique ID for the annotated <tt>plugin</tt>.<br>
+	 * A unique ID for the annotated {@code plugin}.<br>
 	 * Generally, this ID should follow standard package naming conventions, in other words, the id should be
-	 * <tt>package_name.class_name</tt>.<br>
-	 * If this is a child plugin, using <tt>[inherit].[classname]</tt> is recommended.<br>
+	 * {@code package_name.class_name}.<br>
+	 * If this is a child plugin, using {@code [inherit].[classname]} is recommended.<br>
 	 * This will default to calling {@link Class#getName()} on the plugin's raw class.
 	 * 
 	 * @return the ID of the annotated plugin
@@ -28,27 +28,27 @@ public @interface PluginDescription {
 	String id() default "[generate]";
 	
 	/**
-	 * @return the annotated <tt>plugin</tt>'s version
+	 * @return the annotated {@code plugin's} version
 	 */
 	String version() default "[inherit|generate]";
 	
 	/**
-	 * @return a description of the annotated <tt>plugin</tt>
+	 * @return a description of the annotated {@code plugin}
 	 */
 	String description() default "[inherit|generate]";
 	
 	/**
-	 * @return the author of the annotated <tt>plugin</tt>
+	 * @return the author of the annotated {@code plugin}
 	 */
 	String author() default "[inherit|generate]";
 	
 	/**
-	 * @return the parent of the annotated <tt>plugin</tt>
+	 * @return the parent of the annotated {@code plugin}
 	 */
 	String parent() default "[none]";
 	
 	/**
-	 * @return the annotated <tt>plugin's</tt> children
+	 * @return the annotated {@code plugin's} children
 	 */
 	Class<?>[] children() default {};
 	

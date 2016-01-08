@@ -42,14 +42,14 @@ public final class PluginClassLoader extends SecureClassLoader {
 	 * collection if they are non-null (otherwise it simply constructs empty {@link Set Sets} or {@link Collection
 	 * Collections} as appropriate), thereby allowing the object that initialized the {@link PluginClassLoader} access to
 	 * those fields without exposing them to any other objects. However, it is important to note that removing elements from
-	 * the <tt>classloaders</tt> {@link Collection} will result in undefined behavior.
+	 * the {@code classloaders} {@link Collection} will result in undefined behavior.
 	 * 
 	 * @param parent
 	 *            the parent {@link ClassLoader} of this {@link PluginClassLoader}
 	 * @param blockedPackages
 	 *            a {@link Set} of packages from which this {@link PluginClassLoader} will not load classes
 	 * @param systemPackages
-	 *            the same as <tt>blockedPackages</tt> however, once a package is added to this set, only the object that
+	 *            the same as {@code blockedPackages} however, once a package is added to this set, only the object that
 	 *            created this {@link PluginClassLoader} can remove it (this is just to provide additional security)
 	 * @param classloaders
 	 *            a {@link Collection} of {@link ClassLoader ClassLoaders} that this {@link PluginClassLoader} can use
@@ -123,7 +123,7 @@ public final class PluginClassLoader extends SecureClassLoader {
 	 * 
 	 * @param path
 	 *            the {@link Path} corresponding to the {@link ClassLoader} to remove
-	 * @return {@code true} if the {@link ClassLoader} corresponding to <tt>path</tt> was removed
+	 * @return {@code true} if the {@link ClassLoader} corresponding to {@code path} was removed
 	 * @throws UnsupportedOperationException
 	 *             whenever this method is called - this is currently unsupported
 	 */

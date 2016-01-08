@@ -47,14 +47,14 @@ public class DependencyContainer {
 	}
 	
 	/**
-	 * @return the <tt>ID</tt> of the <tt>plugin</tt> that satisfies the dependency
+	 * @return the {@code ID} of the {@code plugin} that satisfies the dependency
 	 */
 	public String id() {
 		return id;
 	}
 	
 	/**
-	 * @return the specific version or range of versions of the <tt>plugin</tt> that satisfy the dependency
+	 * @return the specific version or range of versions of the {@code plugin} that satisfy the dependency
 	 */
 	public String version() {
 		return version;

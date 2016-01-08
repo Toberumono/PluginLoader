@@ -97,8 +97,8 @@ public class PluginManager<T> extends FileManager {
 	
 	/**
 	 * Creates a new {@link PluginManager} on the {@link FileSystem} returned by {@link FileSystems#getDefault()}, that uses
-	 * <tt>blacklistedPackages</tt> to determine whether a plugin should be allowed to be loaded from a given package and the
-	 * {@link ClassLoader} in <tt>parent</tt> for its parent {@link ClassLoader}.
+	 * {@code blacklistedPackages} to determine whether a plugin should be allowed to be loaded from a given package and the
+	 * {@link ClassLoader} in {@code parent} for its parent {@link ClassLoader}.
 	 * 
 	 * @param blacklistedPackages
 	 *            a <i>modifiable</i> {@link Collection} of packages from which plugins cannot be loaded (all packages in the
@@ -116,9 +116,9 @@ public class PluginManager<T> extends FileManager {
 	}
 	
 	/**
-	 * Creates a new {@link PluginManager} on the {@link FileSystem} given in <tt>fileSystem</tt>, that uses
-	 * <tt>blacklistedPackages</tt> to determine whether a plugin should be allowed to be loaded from a given package and the
-	 * {@link ClassLoader} in <tt>parent</tt> for its parent {@link ClassLoader}.
+	 * Creates a new {@link PluginManager} on the {@link FileSystem} given in {@code fileSystem}, that uses
+	 * {@code blacklistedPackages} to determine whether a plugin should be allowed to be loaded from a given package and the
+	 * {@link ClassLoader} in {@code parent} for its parent {@link ClassLoader}.
 	 * 
 	 * @param blacklistedPackages
 	 *            a <i>modifiable</i> {@link Collection} of packages from which plugins cannot be loaded (all packages in the
@@ -232,7 +232,7 @@ public class PluginManager<T> extends FileManager {
 	 * 
 	 * @param name
 	 *            the name of the item
-	 * @return {@code true} if <tt>name</tt> is in a blacklisted package (it starts with a blacklisted package)
+	 * @return {@code true} if {@code name} is in a blacklisted package (it starts with a blacklisted package)
 	 */
 	private boolean testBlacklist(String name) {
 		for (String pack : blacklistedPackages)
@@ -323,16 +323,16 @@ public class PluginManager<T> extends FileManager {
 	
 	/**
 	 * Initializes all of the linkable plugins that have not already been initialized using the given arguments and passes
-	 * them to the <tt>onInitialization</tt> {@link ExceptedConsumer} that was provided when the {@link PluginManager} was
+	 * them to the {@code onInitialization} {@link ExceptedConsumer} that was provided when the {@link PluginManager} was
 	 * constructed.
 	 * 
 	 * @param args
 	 *            the arguments with which plugins should be initialized
 	 * @throws Exception
-	 *             if an error occurs either during initialization or in <tt>onInitialization</tt>
+	 *             if an error occurs either during initialization or in {@code onInitialization}
 	 */
 	public void initializePlugins(Object... args) throws Exception {
-		synchronized (pluginMapLock) {
+		synchronized (pluginMapLock.readLock()) {
 			resolve(); //We cannot initialize plugins without resolving their dependencies first
 			for (PluginData<T> pd : plugins.values()) { //TODO implement plugin initialization ordering
 				if (!pd.getDescription().type().shouldInitialize())

@@ -279,9 +279,9 @@ public class PluginData<T> {
 	/**
 	 * /** A plugin is linkable iff all of it's dependencies have been resolved and all of those dependencies are themselves
 	 * linkable.<br>
-	 * If the plugin has not already been marked as linkable and <tt>performTest</tt> is {@code true}, then calling this
+	 * If the plugin has not already been marked as linkable and {@code performTest} is {@code true}, then calling this
 	 * method will result in an attempt to determine if the plugin is linkable, which can become somewhat expensive as the
-	 * number of plugins increases. Therefore, it is recommended that this method be called with <tt>performTest</tt> as
+	 * number of plugins increases. Therefore, it is recommended that this method be called with {@code performTest} as
 	 * {@code true} as infrequently as possible.
 	 * 
 	 * @param performTest
@@ -323,7 +323,7 @@ public class PluginData<T> {
 	}
 	
 	/**
-	 * Fills in <tt>visited</tt> with all of the dependencies that must be resolved in order for this plugin and all plugins
+	 * Fills in {@code visited} with all of the dependencies that must be resolved in order for this plugin and all plugins
 	 * with which it has a circular dependency to be linkable.
 	 * 
 	 * @param visited
