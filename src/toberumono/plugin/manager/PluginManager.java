@@ -337,7 +337,7 @@ public class PluginManager<T> extends FileManager {
 			for (PluginData<T> pd : plugins.values()) { //TODO implement plugin initialization ordering
 				if (!pd.getDescription().type().shouldInitialize())
 					continue;
-				if (pd.isLinkable() && !pd.isConstructed() && pd.getDescription().type().shouldInitialize()) {
+				if (pd.isLinkable() && !pd.isConstructed()) {
 					T plugin = pd.construct(args);
 					try {
 						onInitialization.accept(plugin);
