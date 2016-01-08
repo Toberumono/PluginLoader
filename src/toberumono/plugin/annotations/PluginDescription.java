@@ -51,4 +51,10 @@ public @interface PluginDescription {
 	 * @return the annotated <tt>plugin's</tt> children
 	 */
 	Class<?>[] children() default {};
+	
+	/**
+	 * @return the type of the plugin
+	 * @see PluginType
+	 */
+	PluginType type() default PluginType.STANDARD;
 }

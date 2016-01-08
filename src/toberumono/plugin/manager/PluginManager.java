@@ -15,9 +15,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -254,8 +252,8 @@ public class PluginManager<T> extends FileManager {
 			if (except == null)
 				except = e;
 		}
-		Iterator<Entry<FileSystem, Path>> iter = opened.entrySet().iterator();
-		while (iter.hasNext()) {
+		
+		for (Iterator<Entry<FileSystem, Path>> iter = opened.entrySet().iterator(); iter.hasNext();) {
 			Entry<FileSystem, Path> open = iter.next();
 			try {
 				open.getKey().close();
@@ -312,8 +310,7 @@ public class PluginManager<T> extends FileManager {
 				Iterator<RequestedDependency<T>> iter = null;
 				RequestedDependency<T> request = null;
 				for (PluginData<T> satisfier : plugins.values()) {
-					iter = requestedDependencies.iterator();
-					while (iter.hasNext()) {
+					for (iter = requestedDependencies.iterator(); iter.hasNext();) {
 						request = iter.next();
 						if (satisfier.satisfyDependency(request))
 							iter.remove();
@@ -340,7 +337,7 @@ public class PluginManager<T> extends FileManager {
 			for (PluginData<T> pd : plugins.values()) { //TODO implement plugin initialization ordering
 				if (!pd.getDescription().type().shouldInitialize())
 					continue;
-				if (pd.isLinkable() && !pd.isConstructed()) {
+				if (pd.isLinkable() && !pd.isConstructed() && pd.getDescription().type().shouldInitialize()) {
 					T plugin = pd.construct(args);
 					try {
 						onInitialization.accept(plugin);
