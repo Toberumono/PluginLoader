@@ -5,7 +5,9 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -13,6 +15,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -334,18 +337,22 @@ public class PluginManager<T> extends FileManager {
 	public void initializePlugins(Object... args) throws Exception {
 		synchronized (pluginMapLock.readLock()) {
 			resolve(); //We cannot initialize plugins without resolving their dependencies first
-			for (PluginData<T> pd : plugins.values()) { //TODO implement plugin initialization ordering
+			List<PluginData<T>> initializationOrder = new ArrayList<>();
+			Set<PluginData<T>> visited = new HashSet<>();
+			for (PluginData<T> pd : plugins.values()) {
 				if (!pd.getDescription().type().shouldInitialize())
 					continue;
-				if (pd.isLinkable() && !pd.isConstructed()) {
-					T plugin = pd.construct(args);
-					try {
-						onInitialization.accept(plugin);
-					}
-					catch (Exception e) {
-						postInitFailures.add(plugin);
-						throw e;
-					}
+				if (pd.isLinkable() && !pd.isConstructed() && !visited.contains(pd))
+					generateInitializationOrder(pd, visited, initializationOrder);
+			}
+			for (PluginData<T> pd : initializationOrder) {
+				T plugin = pd.construct(args);
+				try {
+					onInitialization.accept(plugin);
+				}
+				catch (Exception e) {
+					postInitFailures.add(plugin);
+					throw e;
 				}
 			}
 			//TODO replace this stopgap system with dynamic removal of plugins
@@ -356,5 +363,14 @@ public class PluginManager<T> extends FileManager {
 				iter.remove();
 			}
 		}
+	}
+	
+	private static <T> void generateInitializationOrder(PluginData<T> plugin, Set<PluginData<T>> visited, List<PluginData<T>> initializationOrder) {
+		if (visited.contains(plugin))
+			return;
+		visited.add(plugin);
+		for (Entry<String, PluginData<T>> dependency : plugin.getResolvedDependencies())
+			generateInitializationOrder(dependency.getValue(), visited, initializationOrder);
+		initializationOrder.add(plugin);
 	}
 }
