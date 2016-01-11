@@ -1,6 +1,9 @@
 package toberumono.plugin.manager;
 
+import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Array;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -20,9 +23,15 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import toberumono.plugin.annotations.Dependency;
+import toberumono.plugin.annotations.PluginActivator;
+import toberumono.plugin.annotations.PluginDeactivator;
 import toberumono.plugin.annotations.PluginDescription;
+import toberumono.plugin.exceptions.PluginActivationException;
 import toberumono.plugin.exceptions.PluginConstructionException;
+import toberumono.plugin.exceptions.PluginDeactivationException;
 import toberumono.plugin.exceptions.UnlinkablePluginException;
+import toberumono.plugin.user.PluginUser;
+import toberumono.structures.collections.lists.SortedList;
 
 /**
  * A container for managing the metadata associated with a plugin by a {@link PluginManager}.
@@ -46,6 +55,8 @@ public class PluginData<T> {
 	private T instance;
 	private Boolean linkable;
 	private final int hashCode;
+	private Method[] activators, deactivators;
+	private int activatorsIndex, deactivatorsIndex;
 	
 	/**
 	 * Constructs a new {@link PluginData} container with the default {@link Logger}
@@ -96,6 +107,10 @@ public class PluginData<T> {
 		hash = hash * 31 + this.description.hashCode();
 		hash = hash * 31 + Arrays.hashCode(this.dependencies);
 		hashCode = hash;
+		activators = null;
+		activatorsIndex = 0;
+		deactivators = null;
+		deactivatorsIndex = 0;
 	}
 	
 	/**
@@ -228,7 +243,8 @@ public class PluginData<T> {
 	/**
 	 * Attempts to construct an instance of the plugin with the given arguments if the plugin has not already been
 	 * constructed. If the plugin has already been constructed, it returns the constructed instance of the plugin.<br>
-	 * Plugins are only constructible if they are {@link #isLinkable() linkable}.
+	 * Plugins are only constructible if they are {@link #isLinkable() linkable}.<br>
+	 * Once the plugin has been constructed, use of {@link #getInstance()} is recommended.
 	 * 
 	 * @param args
 	 *            the arguments to pass to the constructor
@@ -239,6 +255,8 @@ public class PluginData<T> {
 	 * @throws UnlinkablePluginException
 	 *             if the plugin is not linkable when this method is called
 	 * @see #isLinkable()
+	 * @see #isConstructed()
+	 * @see #getInstance()
 	 */
 	public T construct(Object[] args) throws PluginConstructionException, UnlinkablePluginException {
 		synchronized (constructionLock) {
@@ -258,6 +276,18 @@ public class PluginData<T> {
 			catch (Exception e) {
 				throw new PluginConstructionException(e);
 			}
+		}
+	}
+	
+	/**
+	 * This method returns the already-constructed instance of the plugin that the {@link PluginData} or {@code null} if the
+	 * plugin has not yet been constructed.
+	 * 
+	 * @return the constructed plugin if it has been constructed, otherwise {@code null}
+	 */
+	public T getInstance() {
+		synchronized (constructionLock) {
+			return instance;
 		}
 	}
 	
@@ -375,6 +405,95 @@ public class PluginData<T> {
 				return false;
 			return true;
 		}
+	}
+	
+	/**
+	 * This method is called by the {@link PluginUser} during the activation stage of the initialization process.
+	 * 
+	 * @param args
+	 *            the arguments to be passed to the plugin's activators
+	 * @return {@code true} if all of the activators were successfully called
+	 * @throws PluginActivationException
+	 *             if an error occurs while invoking an activator
+	 */
+	public synchronized boolean callActivators(Object[] args) throws PluginActivationException {
+		if (!isConstructed())
+			throw new PluginActivationException("Attempted to activate a plugin that is not yet constructed.");
+		if (activators == null) {
+			Method[] methods = clazz.getDeclaredMethods();
+			List<Method> temp = new SortedList<>(methods.length, (a, b) -> ((Integer) a.getAnnotation(PluginActivator.class).priority()).compareTo(b.getAnnotation(PluginActivator.class).priority()));
+			for (Method m : methods)
+				if (m.getAnnotation(PluginActivator.class) != null) {
+					if (Arrays.equals(args, m.getParameterTypes()))
+						temp.add(m);
+					else
+						logger.log(Level.WARNING, "Encountered an activator, " + m.getName() + ", with invalid arguments, " + Arrays.toString(m.getParameterTypes()) +
+								", while initializing the plugin, " + description.id() + ".");
+				}
+			activators = temp.toArray(new Method[temp.size()]);
+		}
+		try {
+			AccessibleObject.setAccessible(activators, true); //TODO might not need to set accessible
+			for (; activatorsIndex < activators.length; activatorsIndex++)
+				try {
+					activators[activatorsIndex].invoke(getInstance(), args);
+				}
+				catch (IllegalAccessException | IllegalArgumentException e) {
+					throw new PluginActivationException(e);
+				}
+				catch (InvocationTargetException e) { //This exception wraps the actual exception
+					throw new PluginActivationException(e.getCause());
+				}
+		}
+		finally {
+			AccessibleObject.setAccessible(activators, false);
+		}
+		return true;
+	}
+	
+	/**
+	 * This method is called by the {@link PluginUser} during the deactivation stage of the deinitialization process.
+	 * 
+	 * @param args
+	 *            the arguments to be passed to the plugin's deactivators
+	 * @return {@code true} if all of the deactivators were successfully called
+	 * @throws PluginDeactivationException
+	 *             if an error occurs while invoking a deactivator
+	 */
+	public synchronized boolean callDeactivators(Object[] args) throws PluginDeactivationException {
+		if (!isConstructed())
+			throw new PluginDeactivationException("Attempted to deactivate a plugin that is not yet constructed.");
+		if (deactivators == null) {
+			Method[] methods = clazz.getDeclaredMethods();
+			List<Method> temp =
+					new SortedList<>(methods.length, (a, b) -> ((Integer) a.getAnnotation(PluginDeactivator.class).priority()).compareTo(b.getAnnotation(PluginDeactivator.class).priority()));
+			for (Method m : methods)
+				if (m.getAnnotation(PluginDeactivator.class) != null) {
+					if (Arrays.equals(args, m.getParameterTypes()))
+						temp.add(m);
+					else
+						logger.log(Level.WARNING, "Encountered a deactivator, " + m.getName() + ", with invalid arguments, " + Arrays.toString(m.getParameterTypes()) +
+								", while deinitializing the plugin, " + description.id() + ".");
+				}
+			deactivators = temp.toArray(new Method[temp.size()]);
+		}
+		try {
+			AccessibleObject.setAccessible(deactivators, true); //TODO might not need to set accessible
+			for (; deactivatorsIndex < deactivators.length; deactivatorsIndex++)
+				try {
+					deactivators[deactivatorsIndex].invoke(getInstance(), args);
+				}
+				catch (IllegalAccessException | IllegalArgumentException e) {
+					throw new PluginDeactivationException(e);
+				}
+				catch (InvocationTargetException e) { //This exception wraps the actual exception
+					throw new PluginDeactivationException(e.getCause());
+				}
+		}
+		finally {
+			AccessibleObject.setAccessible(deactivators, false);
+		}
+		return true;
 	}
 	
 	/**

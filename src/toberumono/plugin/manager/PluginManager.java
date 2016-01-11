@@ -25,8 +25,11 @@ import java.util.logging.Logger;
 
 import toberumono.plugin.annotations.Dependency;
 import toberumono.plugin.annotations.PluginDescription;
+import toberumono.plugin.exceptions.PluginActivationException;
+import toberumono.plugin.exceptions.PluginConstructionException;
+import toberumono.plugin.exceptions.UnlinkablePluginException;
+import toberumono.plugin.user.PluginUser;
 import toberumono.utils.files.FileManager;
-import toberumono.utils.functions.ExceptedConsumer;
 import toberumono.utils.functions.IOExceptedFunction;
 
 /**
@@ -63,8 +66,8 @@ public class PluginManager<T> extends FileManager {
 	private final ReadWriteLock requestedDependenciesLock, pluginMapLock;
 	private final Logger logger;
 	private final Map<FileSystem, Path> opened;
-	private final ExceptedConsumer<T> onInitialization;
-	private final Collection<T> postInitFailures;
+	private final Collection<PluginData<T>> postInitFailures;
+	private final PluginUser<T> pluginUser;
 	
 	private Path activePath;
 	
@@ -73,13 +76,13 @@ public class PluginManager<T> extends FileManager {
 	 * on the {@link FileSystem} returned by {@link FileSystems#getDefault()} using the {@link ClassLoader} returned by
 	 * {@link ClassLoader#getSystemClassLoader()} for its parent {@link ClassLoader}.
 	 * 
-	 * @param onInitialization
-	 *            a function that processes plugins when they are initialized
+	 * @param pluginUser
+	 *            the object that will be using the loaded plugins
 	 * @throws IOException
 	 *             if an I/O exception occurs while initializing the {@link PluginManager}
 	 */
-	public PluginManager(ExceptedConsumer<T> onInitialization) throws IOException {
-		this(DEFAULT_BLACKLISTED_PACKAGES, onInitialization);
+	public PluginManager(PluginUser<T> pluginUser) throws IOException {
+		this(DEFAULT_BLACKLISTED_PACKAGES, pluginUser);
 	}
 	
 	/**
@@ -89,13 +92,13 @@ public class PluginManager<T> extends FileManager {
 	 * @param blacklistedPackages
 	 *            a <i>modifiable</i> {@link Collection} of packages from which plugins cannot be loaded (all packages in the
 	 *            set automatically include any sub-packages)
-	 * @param onInitialization
-	 *            a function that processes plugins when they are initialized
+	 * @param pluginUser
+	 *            the object that will be using the loaded plugins
 	 * @throws IOException
 	 *             if an I/O exception occurs while initializing the {@link PluginManager}
 	 */
-	public PluginManager(Collection<String> blacklistedPackages, ExceptedConsumer<T> onInitialization) throws IOException {
-		this(blacklistedPackages, onInitialization, ClassLoader.getSystemClassLoader());
+	public PluginManager(Collection<String> blacklistedPackages, PluginUser<T> pluginUser) throws IOException {
+		this(blacklistedPackages, pluginUser, ClassLoader.getSystemClassLoader());
 	}
 	
 	/**
@@ -106,16 +109,16 @@ public class PluginManager<T> extends FileManager {
 	 * @param blacklistedPackages
 	 *            a <i>modifiable</i> {@link Collection} of packages from which plugins cannot be loaded (all packages in the
 	 *            set automatically include any sub-packages)
-	 * @param onInitialization
-	 *            a function that processes plugins when they are initialized
+	 * @param pluginUser
+	 *            the object that will be using the loaded plugins
 	 * @param parentClassLoader
 	 *            the parent {@link ClassLoader} for the plugins loaded by the {@link PluginManager}
 	 * @throws IOException
 	 *             if an I/O exception occurs while initializing the {@link PluginManager}
 	 */
-	public PluginManager(Collection<String> blacklistedPackages, ExceptedConsumer<T> onInitialization, ClassLoader parentClassLoader)
+	public PluginManager(Collection<String> blacklistedPackages, PluginUser<T> pluginUser, ClassLoader parentClassLoader)
 			throws IOException {
-		this(blacklistedPackages, onInitialization, parentClassLoader, FileSystems.getDefault());
+		this(blacklistedPackages, pluginUser, parentClassLoader, FileSystems.getDefault());
 	}
 	
 	/**
@@ -126,8 +129,8 @@ public class PluginManager<T> extends FileManager {
 	 * @param blacklistedPackages
 	 *            a <i>modifiable</i> {@link Collection} of packages from which plugins cannot be loaded (all packages in the
 	 *            set automatically include any sub-packages)
-	 * @param onInitialization
-	 *            a function that processes plugins when they are initialized
+	 * @param pluginUser
+	 *            the object that will be using the loaded plugins
 	 * @param parentClassLoader
 	 *            the parent {@link ClassLoader} for the plugins loaded by the {@link PluginManager}
 	 * @param fileSystem
@@ -135,8 +138,7 @@ public class PluginManager<T> extends FileManager {
 	 * @throws IOException
 	 *             if an I/O exception occurs while initializing the {@link PluginManager}
 	 */
-	public PluginManager(Collection<String> blacklistedPackages, ExceptedConsumer<T> onInitialization, ClassLoader parentClassLoader,
-			FileSystem fileSystem) throws IOException {
+	public PluginManager(Collection<String> blacklistedPackages, PluginUser<T> pluginUser, ClassLoader parentClassLoader, FileSystem fileSystem) throws IOException {
 		super(null, p -> {}, p -> {}, p -> {}, k -> {}, fileSystem); //All null functions are implemented through overriding methods
 		pcl = new PluginClassLoader(parentClassLoader);
 		opened = new LinkedHashMap<>();
@@ -156,7 +158,7 @@ public class PluginManager<T> extends FileManager {
 			logger.log(Level.WARNING, "Unable to add '" + PROJECT_ROOT_PACKAGE +
 					"' to the blocked packages for a PluginManager.  This poses a significant security risk.");
 		}
-		this.onInitialization = onInitialization;
+		this.pluginUser = pluginUser;
 		pluginMapLock = new ReentrantReadWriteLock();
 		requestedDependenciesLock = new ReentrantReadWriteLock();
 		plugins = new LinkedHashMap<>();
@@ -209,8 +211,7 @@ public class PluginManager<T> extends FileManager {
 		else if ((p.endsWith(".jar") || p.endsWith(".zip")) && pcl.addClassLoader(p)) { //We create the ClassLoader for the .jar/.zip file here.
 			try (FileSystem fs = fileSystemMaker.apply(p)) {
 				PluginWalker pw =
-						new PluginWalker(blacklistedPackages, path -> !this.getPaths().contains(path), this::queueClassName, fileSystemMaker,
-								Logger.getLogger(PluginWalker.class.getName()));
+						new PluginWalker(blacklistedPackages, path -> !this.getPaths().contains(path), this::queueClassName, fileSystemMaker, Logger.getLogger(PluginWalker.class.getName()));
 				for (Path dir : fs.getRootDirectories())
 					Files.walkFileTree(dir, pw);
 			}
@@ -263,9 +264,7 @@ public class PluginManager<T> extends FileManager {
 				iter.remove();
 			}
 			catch (IOException e) {
-				logger.log(Level.SEVERE,
-						"Error while attempting to close the FileSystem object for " + open.getValue().toString() + " while closing a PluginManager",
-						e);
+				logger.log(Level.SEVERE, "Error while attempting to close the FileSystem object for " + open.getValue().toString() + " while closing a PluginManager", e);
 				if (except == null)
 					except = e;
 			}
@@ -288,8 +287,7 @@ public class PluginManager<T> extends FileManager {
 				PluginDescription info = clazz.getAnnotation(PluginDescription.class);
 				String id = info.id();
 				if (plugins.containsKey(id)) { //TODO Implement plugin removal
-					logger.log(Level.WARNING,
-							"Attempted to load a plugin with the ID, " + id + ", but another plugin with that ID has already been loaded.");
+					logger.log(Level.WARNING, "Attempted to load a plugin with the ID, " + id + ", but another plugin with that ID has already been loaded.");
 					return;
 				}
 				PluginData<T> pd = new PluginData<>(clazz);
@@ -325,17 +323,19 @@ public class PluginManager<T> extends FileManager {
 	}
 	
 	/**
-	 * Initializes all of the linkable plugins that have not already been initialized using the given arguments and passes
-	 * them to the {@code onInitialization} {@link ExceptedConsumer} that was provided when the {@link PluginManager} was
-	 * constructed.
+	 * Constructs all of the linkable plugins that have not already been constructed using the given arguments and passes
+	 * them to the {@link PluginUser} that was provided when the {@link PluginManager} was constructed, which completes the
+	 * initialization process.
 	 * 
 	 * @param args
 	 *            the arguments with which plugins should be initialized
-	 * @throws Exception
-	 *             if an error occurs either during initialization or in {@code onInitialization}
+	 * @throws PluginConstructionException
+	 *             if an error occurs while constructing the plugin
+	 * @throws PluginActivationException
+	 *             if an error occurs while activating the plugin
 	 */
-	public void initializePlugins(Object... args) throws Exception {
-		synchronized (pluginMapLock.readLock()) {
+	public void initializePlugins(Object... args) throws PluginConstructionException, PluginActivationException {
+		synchronized (pluginMapLock.writeLock()) {
 			resolve(); //We cannot initialize plugins without resolving their dependencies first
 			List<PluginData<T>> initializationOrder = new ArrayList<>();
 			Set<PluginData<T>> visited = new HashSet<>();
@@ -346,20 +346,22 @@ public class PluginManager<T> extends FileManager {
 					generateInitializationOrder(pd, visited, initializationOrder);
 			}
 			for (PluginData<T> pd : initializationOrder) {
-				T plugin = pd.construct(args);
 				try {
-					onInitialization.accept(plugin);
+					pd.construct(args);
 				}
-				catch (Exception e) {
-					postInitFailures.add(plugin);
+				catch (UnlinkablePluginException e1) {/* Whether a plugin is linkable cannot change between where it is checked and here.  Therefore, this exception is never thrown. */}
+				try {
+					pluginUser.activatePlugin(pd);
+				}
+				catch (PluginActivationException e) {
+					postInitFailures.add(pd);
 					throw e;
 				}
 			}
 			//TODO replace this stopgap system with dynamic removal of plugins
-			Iterator<T> iter = postInitFailures.iterator();
-			while (iter.hasNext()) {
-				T plugin = iter.next();
-				onInitialization.accept(plugin);
+			for (Iterator<PluginData<T>> iter = postInitFailures.iterator(); iter.hasNext();) {
+				PluginData<T> pd = iter.next();
+				pluginUser.activatePlugin(pd);
 				iter.remove();
 			}
 		}
